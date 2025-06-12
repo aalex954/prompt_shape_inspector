@@ -1,68 +1,60 @@
 #!/usr/bin/env python3
 # ------------------------------------------------------------
-#  LLM Prompt Shape Inspector  ▸  Edge-Finder • Polysemy • Contractor
+#  LLM Prompt Shape Inspector ▸ Edge‑Finder • Polysemy • Contractor
 # ------------------------------------------------------------
-import os, json, re, functools, math, html
+import os, re, html
+from typing import List
+
 import numpy as np
 import streamlit as st
 import tiktoken, pyperclip
 from openai import OpenAI
 from dotenv import load_dotenv; load_dotenv()
 
-
 # ------------------ CONFIG ----------------------------------
 EMBED_MODEL         = "text-embedding-3-small"
-POLY_SENSES         = 4          # how many “imagined” senses per word (WordNet proxy)
-POLY_STRESS_TAU     = 0.25       # what counts as “high” polysemy
-EDGE_TAU            = 0.30       # default edge-score threshold
-LLM_DRIFT_TAU       = 0.07       # occlusion drift threshold
-#openai.api_key      = os.getenv("OPENAI_API_KEY")
+POLY_SENSES         = 4          # how many "imagined" senses per word (WordNet proxy)
+POLY_STRESS_TAU     = 0.73       # what counts as "high" polysemy (updated to 73%)
+EDGE_TAU            = 0.30       # default edge-score threshold (updated to 30%)
+LLM_DRIFT_TAU       = 0.07       # occlusion‑drift threshold
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+ENC    = tiktoken.encoding_for_model(EMBED_MODEL)
 
-ENC                 = tiktoken.encoding_for_model(EMBED_MODEL)
-# ------------------------------------------------------------
-
+# ------------------ WordNet lazy loader ---------------------
 @st.cache_resource(show_spinner=False)
 def _lazy_wordnet():
     import nltk
     try:
         from nltk.corpus import wordnet as wn
-        # Touch a synset to verify the corpus is really present
-        _ = wn.synset('dog.n.01')
+        _ = wn.synset('dog.n.01')  # sanity‑check corpus present
     except (LookupError, OSError):
-        nltk.download('wordnet', quiet=True)   # ← everything happens automatically
+        nltk.download('wordnet', quiet=True)
         from nltk.corpus import wordnet as wn
     return wn
 
+# ---------------- Embedding helper --------------------------
 
 def embed(texts):
-    """
-    Accepts str or list[str], returns a NumPy vector or list thereof
-    using the new openai-python ≥1.0.0 interface.
-    """
+    """Return unit‑norm vectors for a string or list of strings."""
     if isinstance(texts, str):
         texts = [texts]
-
-    resp = client.embeddings.create(model=EMBED_MODEL, input=texts)
-    vecs = [np.asarray(item.embedding, dtype=np.float32) for item in resp.data]
-    vecs = [v / np.linalg.norm(v) for v in vecs]       # unit-length
+    resp  = client.embeddings.create(model=EMBED_MODEL, input=texts)
+    vecs  = [np.asarray(d.embedding, dtype=np.float32) for d in resp.data]
+    vecs  = [v/np.linalg.norm(v) for v in vecs]
     return vecs if len(vecs) > 1 else vecs[0]
 
+# ---------------- 4.1 Edge‑Finder ---------------------------
 
-# ---------------- 4.1 Edge-Finder ---------------------------
-def edge_scores(prompt_tokens, constraint_vecs):
-    """Return list of (edge_score ∈ [0,1])."""
-    tok_vecs = embed(prompt_tokens)
-    if isinstance(tok_vecs, np.ndarray):      # len==1 corner case
+def edge_scores(tokens: List[str], constraint_vecs):
+    tok_vecs = embed(tokens)
+    if isinstance(tok_vecs, np.ndarray):
         tok_vecs = [tok_vecs]
-    scores = []
-    for v in tok_vecs:
-        score = max(abs(float(v @ c)) for c in constraint_vecs)
-        scores.append(score)
-    return scores
+    return [max(abs(float(v @ c)) for c in constraint_vecs) for v in tok_vecs]
 
 # ---------------- 4.2 Polysemy Stress -----------------------
-def poly_stress(tokens):
+
+def poly_stress(tokens: List[str]):
     wn = _lazy_wordnet()
     out = []
     for t in tokens:
@@ -71,20 +63,21 @@ def poly_stress(tokens):
             out.append(0.0)
             continue
         glosses = [s.definition() for s in synsets]
-        vecs = embed(glosses)
+        vecs    = embed(glosses)
         if isinstance(vecs, np.ndarray):
             vecs = [vecs]
         centroid = np.mean(vecs, axis=0)
-        var = float(np.mean([np.linalg.norm(v - centroid) for v in vecs]))
+        var      = float(np.mean([np.linalg.norm(v-centroid) for v in vecs]))
         out.append(var)
     return out
 
 # ---------------- Occlusion Drift ---------------------------
-def occlusion_drift(prompt_tokens, full_vec):
+
+def occlusion_drift(tokens: List[str], full_vec):
     drift = []
-    for i in range(len(prompt_tokens)):
-        sub = prompt_tokens[:i] + prompt_tokens[i+1:]
-        if len(sub) == 0:
+    for i in range(len(tokens)):
+        sub = tokens[:i] + tokens[i+1:]
+        if not sub:
             drift.append(0.0)
             continue
         vec_sub = embed("".join(sub))
@@ -92,130 +85,582 @@ def occlusion_drift(prompt_tokens, full_vec):
     return drift
 
 # ---------------- Contractor (4.3) --------------------------
-def contractor(prompt_tokens, edge_mask, poly_mask):
-    """Drop everything that is *not* edge & not poly if occlusion drift < τ."""
-    to_keep = []
-    full_vec = embed("".join(prompt_tokens))
-    drift   = occlusion_drift(prompt_tokens, full_vec)
-    for tok, drift_val, is_edge, is_poly in zip(prompt_tokens, drift, edge_mask, poly_mask):
-        if is_edge or is_poly or drift_val > LLM_DRIFT_TAU:
-            to_keep.append(tok)
-    # Remove leading/trailing spaces introduced by token boundaries
-    contracted = re.sub(r'\s+', ' ', "".join(to_keep)).strip()
-    return contracted
 
-# -------------------- UI Helpers ----------------------------
-def style_token(tok, edge, poly, edge_on, poly_on):
-    """Return HTML <span> w/ colour & tooltip."""
-    e_score = f"{edge:.2f}"
-    p_score = f"{poly:.2f}"
-    title = f"edge score: {e_score} | poly stress: {p_score}"
-    alpha = 0.0
+def contractor(tokens, edge_mask, poly_mask, poly_vals):
+    """Generate optimized prompt with suggestions for sense-locking."""
+    full_vec = embed("".join(tokens))
+    drift    = occlusion_drift(tokens, full_vec)
+    
+    optimized = []
+    for tok, d, e, p, poly in zip(tokens, drift, edge_mask, poly_mask, poly_vals):
+        optimized.append(tok)
+        # Add suggestion placeholder after high-polysemy words
+        # Use the current threshold value
+        if poly >= POLY_STRESS_TAU:
+            optimized.append("{definition}")
+    
+    # Create the optimized text
+    result = "".join(optimized)
+    # Clean up spacing around the inserted placeholders
+    result = re.sub(r"\s+{definition}", " {definition}", result)
+    result = re.sub(r"{definition}\s+", "{definition} ", result)
+    result = re.sub(r"\s+", " ", result).strip()
+    
+    return result
+
+def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
+    """Generate an engineering-optimized prompt with sense-locking and edge reinforcement."""
+    # Create high-quality prompt based on engineering principles
+    
+    # Find top edge tokens (most constraining)
+    edge_pairs = [(i, t, e) for i, (t, e) in enumerate(zip(tokens, edge_vals)) if e >= EDGE_TAU]
+    edge_pairs.sort(key=lambda x: x[2], reverse=True)
+    top_edges = edge_pairs[:min(5, len(edge_pairs))]
+    top_edge_indices = [i for i, _, _ in top_edges]
+    top_edge_tokens = [t for _, t, _ in top_edges]
+    
+    # Find high polysemy tokens that need sense-locking
+    poly_tokens = [(i, t, p) for i, (t, p) in enumerate(zip(tokens, poly_vals)) if p >= POLY_STRESS_TAU]
+    
+    # Calculate polysemy budget
+    total_poly = sum(poly_vals)
+    poly_budget_exceeded = total_poly > 10.0
+    
+    # Build the optimized prompt with engineering principles
+    optimized = []
+    last_was_definition = False
+    
+    # EDGE REINFORCEMENT: Start with key constraints
+    if top_edge_tokens:
+        # Create a front summary of key constraints
+        front_summary = f"[Key constraints: {', '.join(top_edge_tokens[:3])}] "
+        optimized.append(front_summary)
+    
+    # Process the original prompt
+    for i, tok in enumerate(tokens):
+        # DIMENSIONAL DROPOUT: Skip low-information modifiers
+        if tok.strip().lower() in ['very', 'quite', 'somewhat', 'really', 'rather', 'fairly'] and len(tokens) > 20:
+            continue
+            
+        # Don't add extra spaces after sense-locking
+        if last_was_definition and tok.strip() == "":
+            last_was_definition = False
+            continue
+            
+        # Add the token
+        optimized.append(tok)
+        last_was_definition = False
+        
+        # SENSE-LOCKING: Apply to high polysemy words
+        for idx, word, poly_score in poly_tokens:
+            if i == idx:
+                # Add sense-locking placeholder
+                optimized.append("{definition}")
+                last_was_definition = True
+                break
+                
+        # Apply edge reinforcement to critical tokens
+        if i in top_edge_indices and not last_was_definition:
+            optimized.append("*")  # Mark for emphasis
+            last_was_definition = False
+    
+    # EDGE REINFORCEMENT: End with key constraints
+    if top_edge_tokens and len(tokens) > 30:
+        # Create a final reminder of key constraints
+        end_summary = f" [Remember key constraints: {', '.join(top_edge_tokens[:3])}]"
+        optimized.append(end_summary)
+    
+    # Create the optimized text
+    result = "".join(optimized)
+    
+    # Clean up spacing around the inserted placeholders
+    result = re.sub(r"\s+{definition}", " {definition}", result)
+    result = re.sub(r"{definition}\s+", "{definition} ", result)
+    result = re.sub(r"\*\s+", "* ", result)
+    result = re.sub(r"\s+\*", " *", result)
+    result = re.sub(r"\s+", " ", result).strip()
+    
+    return result, total_poly, poly_budget_exceeded
+
+# ---------------- UI Helpers --------------------------------
+
+def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0, normalize=False, show_sense_lock=False):
+    """Return HTML span with heat colouring and tooltip."""
+    title = f"edge: {edge:.2f} | σ: {poly:.2f}"
+    
+    # Calculate intensity for each highlight with proper gain application
+    edge_intensity = 0
+    poly_intensity = 0
+    
     if edge_on:
-        alpha += np.clip(edge / 0.8, 0, 1)
+        # Apply gain and clip to 0-100 range
+        edge_intensity = min(100, int(np.clip(edge * edge_gain/0.8, 0, 1) * 100))
+    
     if poly_on:
-        alpha += np.clip(poly / 0.5, 0, 1)
-    alpha = min(alpha, 1)
-    rgb = f"rgba(255,87,51,{alpha:.2f})"   # heat-color
-    safe = html.escape(tok)
-    return f"<span title='{title}' style='background:{rgb}; padding:2px'>{safe}</span>"
+        # Apply gain and clip to 0-100 range
+        poly_intensity = min(100, int(np.clip(poly * poly_gain/0.5, 0, 1) * 100))
+    
+    # Base style with padding
+    style = "display:inline-block; margin:1px; padding:1px 2px; position:relative; "
+    
+    # Apply highlighting based on active toggles
+    if edge_on and poly_on:
+        # When both are active, use a single color based on which value is higher
+        if edge > poly:
+            # Edge is more important for this token, use blue
+            edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
+            style += f"background-color: {edge_color}; "
+        else:
+            # Polysemy is more important, use green
+            poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
+            style += f"background-color: {poly_color}; "
+    elif edge_on:
+        edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
+        style += f"background-color: {edge_color}; "
+    elif poly_on:
+        poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
+        style += f"background-color: {poly_color}; "
+    
+    # Add lock icon for high polysemy words
+    # (Note: we use the original poly value, not the display/normalized one)
+    if show_sense_lock and poly >= POLY_STRESS_TAU:
+        lock_style = "position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:0.8em;"
+        return f"""<span title='{title}' style='{style}'>
+                    <span style='{lock_style}'>🔒</span>
+                    {html.escape(tok)}
+                </span>"""
+    else:
+        return f"<span title='{title}' style='{style}'>{html.escape(tok)}</span>"
 
-def copy_to_clipboard(text):
+def create_word_groups(tokens):
+    """Group tokens into words by whitespace boundaries.
+    Returns a list of (start_idx, end_idx, word, is_whitespace) tuples."""
+    word_groups = []
+    current_word = []
+    current_indices = []
+    
+    for i, token in enumerate(tokens):
+        if token.strip() == "":  # Whitespace token
+            if current_word:
+                # Complete the current word
+                word = "".join(current_word)
+                word_groups.append((current_indices[0], current_indices[-1] + 1, word, False))
+                current_word = []
+                current_indices = []
+            
+            # Add the whitespace token as its own group
+            word_groups.append((i, i+1, token, True))
+        else:
+            current_word.append(token)
+            current_indices.append(i)
+    
+    # Add the last word if there is one
+    if current_word:
+        word = "".join(current_word)
+        word_groups.append((current_indices[0], current_indices[-1] + 1, word, False))
+    
+    return word_groups
+
+def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_edge, show_poly, edge_gain, poly_gain, show_sense_lock, poly_threshold=None):
+    """Style an entire word group using average scores from its tokens."""
+    # Use provided threshold or fall back to global value
+    threshold = poly_threshold if poly_threshold is not None else POLY_STRESS_TAU
+    
+    # Calculate average scores for the word
+    avg_edge = sum(edge_vals[start_idx:end_idx]) / (end_idx - start_idx)
+    avg_poly = sum(poly_vals[start_idx:end_idx]) / (end_idx - start_idx)
+    
+    # Determine if this word needs sense-locking (if any token has high polysemy)
+    needs_sense_lock = any(p >= threshold for p in poly_vals[start_idx:end_idx])
+    
+    title = f"edge: {avg_edge:.2f} | σ: {avg_poly:.2f}"
+    
+    # Calculate intensities
+    edge_intensity = 0
+    poly_intensity = 0
+    
+    if show_edge:
+        edge_intensity = min(100, int(np.clip(avg_edge * edge_gain/0.8, 0, 1) * 100))
+    
+    if show_poly:
+        poly_intensity = min(100, int(np.clip(avg_poly * poly_gain/0.5, 0, 1) * 100))
+    
+    # Base style with padding
+    style = "display:inline-block; margin:1px 2px; padding:1px 4px; position:relative; "
+    
+    # Apply highlighting based on active toggles
+    if show_edge and show_poly:
+        # When both are active, use a single color based on which value is higher
+        if avg_edge > avg_poly:
+            # Edge is more important for this word, use blue
+            edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
+            style += f"background-color: {edge_color}; "
+        else:
+            # Polysemy is more important, use green
+            poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
+            style += f"background-color: {poly_color}; "
+    elif show_edge:
+        edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
+        style += f"background-color: {edge_color}; "
+    elif show_poly:
+        poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
+        style += f"background-color: {poly_color}; "
+    
+    # Add lock icon for high polysemy words
+    if show_sense_lock and needs_sense_lock:
+        lock_style = "position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:0.8em;"
+        return f"""<span title='{title}' style='{style}'>
+                    <span style='{lock_style}'>🔒</span>
+                    {html.escape(word_text)}
+                </span>"""
+    else:
+        return f"<span title='{title}' style='{style}'>{html.escape(word_text)}</span>"
+
+def copy_to_clipboard(text: str):
     try:
         pyperclip.copy(text)
         return True
     except pyperclip.PyperclipException:
         return False
 
-# ============================================================
-#                     Streamlit GUI
-# ============================================================
+# --------------------------- Streamlit GUI ------------------
+
 st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
 
 col_prompt, col_opts = st.columns([3,1])
 
 with col_prompt:
-    st.markdown("## ✏️ Prompt")
-    user_prompt = st.text_area("Enter your prompt …", height=200, key="prompt")
+    st.markdown("### Input Prompt")
+    user_prompt = st.text_area("Enter your prompt …", height=200)
+
+# Update the UI section to show top edge and polysemy words
 
 with col_opts:
-    st.markdown("### 🔧 Constraint Phrases\n*(one per line)*")
-    raw_constraints = st.text_area("constraints", value="context: cybersecurity\nformat: JSON\nstyle: strict, formal", height=150)
+    st.markdown("### 🔧 Constraint phrases (one per line)")
+    st.markdown("Constraints define the semantic boundaries of your prompt. They help identify which tokens are most important for maintaining these constraints. Enter terms that define what your prompt should be about")
+    raw_constraints = st.text_area("constraints", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
     constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
 
-run_btn = st.button("▶ Analyse")
+if st.button("▶ Analyse") and user_prompt.strip():
+    token_ids = ENC.encode(user_prompt, disallowed_special=())
+    tokens    = [ENC.decode([tid]) for tid in token_ids]
 
-if run_btn and user_prompt.strip():
-    # --- tokenise exactly like the embedding model ---
-    token_ids   = ENC.encode(user_prompt, disallowed_special=())
-    tokens      = [ENC.decode([tid]) for tid in token_ids]
+    c_vecs   = embed(constraints)
+    edge_vals = edge_scores(tokens, c_vecs)
+    poly_vals = poly_stress(tokens)
 
-    st.session_state["tokens"] = tokens
-    st.session_state["constraint_vecs"] = embed(constraints)
-    st.session_state["edge"]   = edge_scores(tokens, st.session_state["constraint_vecs"])
-    st.session_state["poly"]   = poly_stress(tokens)
-    st.session_state["full_vec"] = embed(user_prompt)
+    st.session_state.update(tokens=tokens, edge_vals=edge_vals, poly_vals=poly_vals)
 
+# Fix the normalize function and layout issues
+
+# Modify the normalize logic to properly adjust the values before styling
 if "tokens" in st.session_state:
-    tokens  = st.session_state["tokens"]
-    edge_v  = st.session_state["edge"]
-    poly_v  = st.session_state["poly"]
+    tokens    = st.session_state["tokens"]
+    edge_vals = st.session_state["edge_vals"]
+    poly_vals = st.session_state["poly_vals"]
 
-    edge_mask = [s >= EDGE_TAU for s in edge_v]
-    poly_mask = [s >= POLY_STRESS_TAU for s in poly_v]
+    # Store original values for use in the top words summary
+    orig_edge_vals = edge_vals.copy()
+    orig_poly_vals = poly_vals.copy()
+    
+    # MOVE THRESHOLD CONTROLS TO THE TOP
+    st.sidebar.markdown("## Threshold Controls")
 
-    st.sidebar.markdown("## Heat-Map Toggles")
-    show_edge = st.sidebar.checkbox("Edge-Finder", value=True)
-    show_poly = st.sidebar.checkbox("Polysemy Stress", value=False)
-
-    # ---------------- contractor preview ----------------
-    contracted = contractor(tokens, edge_mask, poly_mask)
-    st.sidebar.markdown("### Contractor Output")
-    st.sidebar.code(contracted, language="markdown")
-    if st.sidebar.button("📋 Copy contracted prompt"):
-        ok = copy_to_clipboard(contracted)
-        st.sidebar.success("Copied!" if ok else "Clipboard failed.")
-
-    # ---------------- budget read-out -------------------
-    tot_poly = sum(poly_v)
-    st.sidebar.markdown(f"### Polysemy Budget\nTotal σ = **{tot_poly:.2f}**  (τ={POLY_STRESS_TAU})")
-
-    # ---------------- main visualisation ----------------
-    st.markdown("### 🖼️  Heat-Map")
-    html_tokens = [
-        style_token(tok, e, p, show_edge, show_poly)
-        for tok, e, p in zip(tokens, edge_v, poly_v)
-    ]
-    st.markdown(
-        "<div style='font-family:monospace; line-height:2em'>" +
-        "".join(html_tokens) +
-        "</div>",
-        unsafe_allow_html=True
+    # Polysemy threshold slider
+    poly_threshold_pct = st.sidebar.slider(
+        "Polysemy threshold (σ)",
+        min_value=0,
+        max_value=100,
+        value=73,  # Updated default to 73%
+        step=1,
+        format="%d%%",  # Display as percentage
+        key="poly_threshold_pct",
+        help="Threshold for considering a word to have high polysemy (higher = fewer words flagged)"
     )
+    # Convert percentage to decimal
+    poly_threshold = poly_threshold_pct / 100.0  # Store in a separate variable
 
-    # ---------------- guidance panel -------------------
-    st.markdown("---")
-    st.markdown("### 📌 Guidance")
-    if any(poly_mask):
-        st.markdown(
-            "* **Sense-Locking** – consider adding clarifiers right after "
-            f"{sum(poly_mask)} polysemous high-σ word(s)."
-        )
-    if not any(edge_mask):
-        st.markdown(
-            "* **Edge Reinforcement** – no edge tokens detected above τ; "
-            "your prompt may drift."
-        )
-    low_info = [t for t,e,p in zip(tokens,edge_mask,poly_mask) if not e and not p and len(t.strip()) <= 3]
-    if len(low_info) > 4:
-        st.markdown(
-            "* **Dimensional Drop-Out** – consider dropping fillers like "
-            f"`{' '.join(low_info[:6])} …`"
-        )
-    if tot_poly > 4:
-        st.markdown(
-            "* **Polysemy Budget** exceeded – tighten wording or add examples."
-        )
+    # Edge threshold slider
+    edge_threshold_pct = st.sidebar.slider(
+        "Edge score threshold",
+        min_value=0,
+        max_value=100,
+        value=30,  # Updated default to 30%
+        step=1,
+        format="%d%%",  # Display as percentage
+        key="edge_threshold_pct",
+        help="Threshold for considering a token as an edge token (higher = fewer words flagged)"
+    )
+    edge_threshold = edge_threshold_pct / 100.0  # Store in a separate variable
 
-else:
-    st.info("Enter a prompt and press **Analyse**.")
+    # Update the global thresholds EARLY
+    POLY_STRESS_TAU = poly_threshold
+    EDGE_TAU = edge_threshold
+
+    # Update masks based on the new thresholds
+    edge_mask = [v >= EDGE_TAU for v in orig_edge_vals]
+    poly_mask = [v >= POLY_STRESS_TAU for v in orig_poly_vals]
+    
+    # NOW continue with the rest of the sidebar controls
+    st.sidebar.markdown("## Heat‑map toggles")
+
+    # Edge finder with gain control
+    col_edge, col_edge_gain = st.sidebar.columns([2, 3])
+    with col_edge:
+        show_edge = st.checkbox("Edge‑Finder", value=True, key="show_edge")
+    with col_edge_gain:
+        edge_gain = st.slider("Gain", min_value=0.0, max_value=100.0, value=41.0, step=1.0, 
+                            disabled=not show_edge, key="edge_gain")
+        # Convert percentage to decimal for calculations
+        edge_gain = edge_gain / 30.0
+
+    # Polysemy with gain control
+    col_poly, col_poly_gain = st.sidebar.columns([2, 3])
+    with col_poly:
+        show_poly = st.checkbox("Polysemy stress", value=False, key="show_poly")
+    with col_poly_gain:
+        poly_gain = st.slider("Gain", min_value=0.0, max_value=100.0, value=16.0, step=1.0, 
+                     disabled=not show_poly, key="poly_gain")
+        # Convert percentage to decimal for calculations
+        poly_gain = poly_gain / 30.0
+
+    # Normalize toggle with unique key
+    normalize = st.sidebar.checkbox("Normalize (maximize differences)", value=True, 
+                                   key="normalize",
+                                   help="Adjusts the highlighting to emphasize the relative differences between words")
+
+    # Apply normalization if requested - FIXED implementation
+    edge_vals_display = edge_vals.copy()  # Create display copies that will be modified
+    poly_vals_display = poly_vals.copy()
+    
+    if normalize:
+        if show_edge and any(edge_vals_display):
+            # Scale edge values to maximize differences
+            max_edge = max(edge_vals_display)
+            min_edge = min(edge_vals_display)
+            if max_edge > min_edge:  # Avoid division by zero
+                edge_vals_display = [(e - min_edge) / (max_edge - min_edge) for e in edge_vals_display]
+        
+        if show_poly and any(poly_vals_display):
+            # Scale poly values to maximize differences
+            max_poly = max(poly_vals_display)
+            min_poly = min(poly_vals_display)
+            if max_poly > min_poly:  # Avoid division by zero
+                poly_vals_display = [(p - min_poly) / (max_poly - min_poly) for p in poly_vals_display]
+
+    # Sense-locking toggle with unique key
+    show_sense_lock = st.sidebar.checkbox("Show sense-locking suggestions", value=True, key="show_sense_lock")
+    
+    # Add legend for the sense-locking feature
+    if show_sense_lock:
+        st.sidebar.markdown(f"""
+        ### Sense-locking Legend
+        🔒 - High polysemy word (σ ≥ {POLY_STRESS_TAU:.2f})
+        
+        **Recommendation:** Follow these words with:
+        - A micro-definition in parentheses
+        - A synonym or role marker
+        
+        **Example:** "Bank {{financial institution}} ledger..."
+        
+        This reduces ambiguity by focusing the LLM's attention on the intended meaning.
+        """)
+
+    total_poly = sum(orig_poly_vals)  # Use original values for sum
+    st.sidebar.markdown(f"### Polysemy budget\nTotal σ = **{total_poly:.2f}** (τ={POLY_STRESS_TAU:.2f})")
+    
+    # Display explanation for gain knobs
+    if show_edge or show_poly:
+        st.sidebar.markdown("""
+        ### Visualization Controls
+        - **Gain**: Increases highlighting intensity for better visibility
+        - **Normalize**: Rescales values to maximize contrast between tokens
+        """)
+
+    # Create a container for results that only shows after analysis
+    if "tokens" in st.session_state:
+        
+        # Create a single row with columns for both results
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Heat‑map section
+            st.markdown("### Heat‑map")
+            
+            # Add toggle for word grouping
+            group_words = st.checkbox("Group tokens into words", value=False, 
+                                     help="Display heat map by words rather than individual tokens",
+                                     key="group_words")
+            
+            if group_words:
+                # Create word groups
+                word_groups = create_word_groups(tokens)
+                
+                # Style each word group as a unit
+                html_words = []
+                for start_idx, end_idx, word, is_whitespace in word_groups:
+                    if is_whitespace:
+                        # Just add whitespace without styling
+                        html_words.append(html.escape(word))
+                    else:
+                        # Style the word based on average scores
+                        styled_word = style_word_group(word, 
+                              edge_vals_display, poly_vals_display, 
+                              start_idx, end_idx,
+                              show_edge, show_poly, 
+                              edge_gain, poly_gain, 
+                              show_sense_lock,
+                              POLY_STRESS_TAU)  # Pass current threshold value
+                        html_words.append(styled_word)
+
+                st.markdown("<div style='font-family:monospace; line-height:2em'>"+"".join(html_words)+"</div>", unsafe_allow_html=True)
+            else:
+                # Original token-by-token display
+                html_tokens = [style_token(t, ed, pd, show_edge, show_poly, edge_gain, poly_gain, False, show_sense_lock) 
+                              for t, ed, pd in zip(tokens, edge_vals_display, poly_vals_display)]
+                st.markdown("<div style='font-family:monospace; line-height:2em'>"+"".join(html_tokens)+"</div>", unsafe_allow_html=True)
+
+            # Optimized prompt output
+            st.markdown("### 🔗 Optimized prompt (copy‑ready)")
+            st.markdown("""
+            Fill in the `{definition}` placeholders with clarifying information for ambiguous terms.
+            Example: "bank {financial institution}" or "bank {river embankment}"
+            """)
+            optimized = contractor(tokens, edge_mask, poly_mask, orig_poly_vals)  # Use original values
+            st.code(optimized, language="markdown")
+            if st.button("📋 Copy optimized prompt", key="copy_btn_1"):
+                st.success("Copied!" if copy_to_clipboard(optimized) else "Copy failed.")
+        
+        # Fix the edge and polysemy word displays in the right column
+        with col2:
+            st.markdown("### 🎯 Top Words Summary")
+            
+            # Create tabs for edge and poly words
+            tab_edges, tab_poly = st.tabs(["Top Edge Words", "Top Polysemy Words"])
+            
+            # EDGE WORDS TAB
+            with tab_edges:
+                st.markdown(f"#### Top edge words (τ={EDGE_TAU:.2f})")
+                
+                # Create pairs of (token, edge_score) and sort by score
+                edge_pairs = [(t, e) for t, e in zip(tokens, orig_edge_vals)]
+                edge_pairs.sort(key=lambda x: x[1], reverse=True)
+                
+                # Take top 10 or fewer if not enough
+                top_edges = edge_pairs[:10]
+                
+                # Display as a table
+                if top_edges:
+                    st.markdown("**Words with highest constraint relevance:**")
+                    for i, (token, score) in enumerate(top_edges):
+                        # Color formatting based on threshold
+                        if score >= EDGE_TAU:
+                            token_html = f"<span style='color:blue; font-weight:bold'>{html.escape(token)}</span>"
+                        else:
+                            token_html = html.escape(token)
+                        
+                        st.markdown(f"{i+1}. {token_html} ({score:.2f})", unsafe_allow_html=True)
+                else:
+                    st.info("No edge words found.")
+            
+            # POLYSEMY WORDS TAB
+            with tab_poly:
+                st.markdown(f"#### Top polysemy words (σ={POLY_STRESS_TAU:.2f})")
+                
+                # Create pairs of (token, poly_score) and sort by score
+                poly_pairs = [(t, p) for t, p in zip(tokens, orig_poly_vals)]
+                poly_pairs.sort(key=lambda x: x[1], reverse=True)
+                
+                # Take top 10 or fewer if not enough
+                top_poly = poly_pairs[:10]
+                
+                # Display as a table
+                if top_poly:
+                    st.markdown("**Words with highest ambiguity:**")
+                    for i, (token, score) in enumerate(top_poly):
+                        # Color formatting based on threshold
+                        if score >= POLY_STRESS_TAU:
+                            token_html = f"<span style='color:green; font-weight:bold'>{html.escape(token)} 🔒</span>"
+                        else:
+                            token_html = html.escape(token)
+                        
+                        st.markdown(f"{i+1}. {token_html} ({score:.2f})", unsafe_allow_html=True)
+                else:
+                    st.info("No polysemy words found.")
+        
+        # Add visual separator here
+        st.markdown("---")
+
+        # Optimized prompt output with engineering principles
+        st.markdown("### 🔗 Engineering-Optimized Prompt")
+
+        # Generate the enhanced prompt
+        optimized, total_poly, poly_budget_exceeded = enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask)
+
+        # Calculate metrics
+        edge_count = len([e for e in edge_mask if e])
+        poly_count = len([p for p in poly_mask if p])
+
+        # Display polysemy budget status
+        poly_budget_status = "✅ GOOD" if total_poly < 5.0 else "⚠️ HIGH" if total_poly < 10.0 else "❌ EXCESSIVE"
+
+        st.markdown(f"""
+        #### Prompt Engineering Metrics
+        - **Polysemy Budget:** {total_poly:.2f} ({poly_budget_status})
+        - **Edge Coverage:** {edge_count} critical constraint tokens
+        - **Shape Stability:** {"High" if total_poly < 5.0 else "Medium" if total_poly < 10.0 else "Low"}
+        """)
+
+        # Show warning if polysemy budget is exceeded
+        if poly_budget_exceeded:
+            st.warning("""
+            ⚠️ **High polysemy budget exceeded!**
+            
+            Your prompt contains too many ambiguous terms, which increases the risk of semantic drift.
+            Consider:
+            1. Adding more definitions to high-polysemy words
+            2. Simplifying language to reduce total ambiguity
+            3. Breaking complex tasks into separate, more focused prompts
+            """)
+
+        # Show the optimized prompt
+        st.code(optimized, language="markdown")
+
+        # Add guidance on how to use the engineering principles
+        st.markdown("""
+        #### Applied Engineering Principles:
+
+        1. **Sense-locking:** Words marked with `{definition}` need disambiguation
+           - Add a brief definition, synonym, or role: "bank {financial institution}"
+           - This collapses ambiguity and narrows the semantic space
+
+        2. **Edge reinforcement:** Critical constraint tokens marked with `*`
+           - Emphasize or repeat these tokens to strengthen boundaries
+           - Key constraints are also repeated at start/end for positional bias
+
+        3. **Dimensional dropout:** Low-information modifiers removed
+           - Vague intensifiers like "very", "quite" add variance without precision
+           - Removal makes output more deterministic and focused
+
+        4. **Polysemy budget:** Total ambiguity score calculated
+           - Keep the total polysemy under control for reliable results
+           - Add more definitions if the budget is exceeded
+        """)
+
+        if st.button("📋 Copy engineering-optimized prompt", key="copy_btn_2"):
+            st.success("Copied!" if copy_to_clipboard(optimized) else "Copy failed.")
+
+        # Add a reference to the engineering principles
+        with st.expander("Learn more about the engineering approach"):
+            st.markdown("""
+            This optimization is based on the "Idea Shapes for Prompt Engineering" framework, which treats prompts as geometric shapes in vector space:
+            
+            - The **shape** of your prompt determines which outputs are possible
+            - **Edge tokens** are the boundaries that constrain the idea
+            - **Polysemy** (word ambiguity) creates dimensional variance
+            - **Shape stability** measures how well-constrained your prompt is
+            
+            By applying engineering principles like sense-locking and edge reinforcement, you create more robust prompts with predictable outputs.
+            """)
+    else:
+        st.info("Enter a prompt and press **Analyse**.")
