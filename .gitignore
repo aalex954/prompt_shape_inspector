@@ -1,0 +1,58 @@
+# ── Python / Streamlit project ───────────────────────────────
+# Virtual-env (name it .venv, env, or venv – all covered)
+.venv/
+env/
+venv/
+
+# Compiled bytecode & caches
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+
+# Jupyter & IPython
+.ipynb_checkpoints/
+*.ipynb~        # file-swap leftovers
+
+# Logs & runtime files
+*.log
+*.coverage
+htmlcov/
+coverage.xml
+
+# Environment & secrets
+.env
+.env.*
+*.env
+.streamlit/secrets.toml
+
+# Local Streamlit state & uploads
+.streamlit/config.toml
+.streamlit/*.json
+.streamlit/cache/
+.streamlit/external/
+
+# OS cruft
+.DS_Store        # macOS
+Thumbs.db        # Windows
+desktop.ini
+
+# Editor / IDE settings
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Packages & wheels built locally
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# Misc
+# Uncomment if you generate coverage or profiling data
+# prof/
+# profile.prof
