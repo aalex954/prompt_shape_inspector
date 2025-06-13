@@ -318,10 +318,13 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
 
 def copy_to_clipboard(text: str):
     try:
+        # First try pyperclip (works locally)
         pyperclip.copy(text)
         return True
-    except pyperclip.PyperclipException:
-        return False
+    except Exception:
+        # Fallback for Streamlit Cloud (no clipboard access)
+        st.session_state.clipboard_text = text
+        return True
 
 # --------------------------- Streamlit GUI ------------------
 
@@ -529,8 +532,11 @@ if "tokens" in st.session_state:
             optimized = contractor(tokens, edge_mask, poly_mask, orig_poly_vals)  # Use original values
             st.code(optimized, language="markdown")
             if st.button("📋 Copy optimized prompt", key="copy_btn_1"):
-                st.success("Copied!" if copy_to_clipboard(optimized) else "Copy failed.")
-        
+                if copy_to_clipboard(optimized):
+                    st.success("Copied to clipboard! (On Streamlit Cloud, use the text above)")
+                else:
+                    st.error("Copy failed.")
+
         # Fix the edge and polysemy word displays in the right column
         with col2:
             st.markdown("### 🎯 Top Words Summary")
@@ -648,7 +654,10 @@ if "tokens" in st.session_state:
         """)
 
         if st.button("📋 Copy engineering-optimized prompt", key="copy_btn_2"):
-            st.success("Copied!" if copy_to_clipboard(optimized) else "Copy failed.")
+            if copy_to_clipboard(optimized):
+                st.success("Copied to clipboard! (On Streamlit Cloud, use the text above)")
+            else:
+                st.error("Copy failed.")
 
         # Add a reference to the engineering principles
         with st.expander("Learn more about the engineering approach"):
