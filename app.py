@@ -11,6 +11,12 @@ import tiktoken, pyperclip
 from openai import OpenAI
 from dotenv import load_dotenv; load_dotenv()
 
+# Set page title and configuration first
+st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
+
+# Add a title at the top of the page
+st.title("LLM Prompt Shape Inspector")
+
 # ------------------ CONFIG ----------------------------------
 EMBED_MODEL         = "text-embedding-3-small"
 POLY_SENSES         = 4          # how many "imagined" senses per word (WordNet proxy)
@@ -328,12 +334,9 @@ def copy_to_clipboard(text: str):
 
 # --------------------------- Streamlit GUI ------------------
 
-st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
-
 col_prompt, col_opts = st.columns([3,1])
 
 with col_prompt:
-    st.markdown("### Input Prompt")
     user_prompt = st.text_area("Enter your prompt …", height=200)
 
 # Update the UI section to show top edge and polysemy words
