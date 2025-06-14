@@ -238,7 +238,7 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     
     # Add lock icon for high polysemy words
     # (Note: we use the original poly value, not the display/normalized one)
-    if show_sense_lock and poly >= POLY_STRESS_TAU:
+    if show_sense_lock and poly >= sense_lock_threshold:
         lock_style = "position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:0.8em;"
         return f"""<span title='{title}' style='{style}'>
                     <span style='{lock_style}'>🔒</span>
@@ -456,27 +456,53 @@ if "tokens" in st.session_state:
     # Edge finder with gain control
     col_edge, col_edge_gain = st.sidebar.columns([2, 3])
     with col_edge:
-        show_edge = st.checkbox("Edge‑Finder", value=True, key="show_edge")
+        show_edge = st.checkbox("Edge‑Finder", 
+                               value=True, 
+                               key="show_edge",
+                               help="Highlights tokens that define the semantic boundaries of your prompt")
     with col_edge_gain:
-        edge_gain = st.slider("Gain", min_value=0.0, max_value=100.0, value=41.0, step=1.0, 
-                            disabled=not show_edge, key="edge_gain")
+        edge_gain = st.slider("Gain", 
+                            min_value=1.0,  # Changed from 0.0 to 1.0
+                            max_value=100.0, 
+                            value=41.0, 
+                            step=1.0, 
+                            disabled=not show_edge, 
+                            key="edge_gain",
+                            help="Increases highlighting intensity for better visibility of edge tokens")
         # Convert percentage to decimal for calculations
         edge_gain = edge_gain / 30.0
 
     # Polysemy with gain control
     col_poly, col_poly_gain = st.sidebar.columns([2, 3])
     with col_poly:
-        show_poly = st.checkbox("Polysemy stress", value=False, key="show_poly")
+        show_poly = st.checkbox("Polysemy stress", 
+                               value=True, 
+                               key="show_poly",
+                               help="Highlights tokens with high semantic ambiguity")
     with col_poly_gain:
-        poly_gain = st.slider("Gain", min_value=0.0, max_value=100.0, value=16.0, step=1.0, 
-                     disabled=not show_poly, key="poly_gain")
+        poly_gain = st.slider("Gain", 
+                             min_value=1.0,  # Changed from 0.0 to 1.0
+                             max_value=100.0, 
+                             value=16.0, 
+                             step=1.0, 
+                             disabled=not show_poly, 
+                             key="poly_gain",
+                             help="Increases highlighting intensity for better visibility of polysemous tokens")
         # Convert percentage to decimal for calculations
         poly_gain = poly_gain / 30.0
 
     # Normalize toggle with unique key
-    normalize = st.sidebar.checkbox("Normalize (maximize differences)", value=True, 
+    normalize = st.sidebar.checkbox("Normalize (maximize differences)", 
+                                   value=True, 
                                    key="normalize",
-                                   help="Adjusts the highlighting to emphasize the relative differences between words")
+                                   help="Adjusts the highlighting to emphasize the relative differences between tokens")
+
+    # Remove the expanded Visualization Controls section since we now have tooltips
+    # with st.sidebar.expander("Visualization Controls", expanded=True):
+    #     st.markdown("""
+    #     - **Gain**: Increases highlighting intensity for better visibility
+    #     - **Normalize**: Rescales values to maximize contrast between tokens
+    #     """)
 
     # Apply normalization if requested - FIXED implementation
     edge_vals_display = edge_vals.copy()  # Create display copies that will be modified
@@ -508,35 +534,43 @@ if "tokens" in st.session_state:
             if max_poly > min_poly:  # Avoid division by zero
                 poly_vals_display = [(p - min_poly) / (max_poly - min_poly) for p in poly_vals_display]
 
+    # Add separate sense-locking threshold with its own slider
+    st.sidebar.markdown("## Sense-locking Controls")
+    
+    # Sense-locking threshold slider (separated from polysemy threshold)
+    sense_lock_threshold_pct = st.sidebar.slider(
+        "Sense-locking threshold",
+        min_value=0,
+        max_value=100,
+        value=int(POLY_STRESS_TAU * 100),  # Start with same value as poly threshold
+        step=1,
+        format="%d%%",
+        key="sense_lock_threshold_pct",
+        help="Threshold for suggesting sense-locking on words (higher = fewer words flagged)"
+    )
+    sense_lock_threshold = sense_lock_threshold_pct / 100.0
+
     # Sense-locking toggle with unique key
     show_sense_lock = st.sidebar.checkbox("Show sense-locking suggestions", value=True, key="show_sense_lock")
     
-    # Add legend for the sense-locking feature
+    # Add legend for the sense-locking feature in a minimized expander
     if show_sense_lock:
-        st.sidebar.markdown(f"""
-        ### Sense-locking Legend
-        🔒 - High polysemy word (σ ≥ {POLY_STRESS_TAU:.2f})
-        
-        **Recommendation:** Follow these words with:
-        - A micro-definition in parentheses
-        - A synonym or role marker
-        
-        **Example:** "Bank {{financial institution}} ledger..."
-        
-        This reduces ambiguity by focusing the LLM's attention on the intended meaning.
-        """)
+        with st.sidebar.expander("Sense-locking Legend", expanded=False):
+            st.markdown(f"""
+            🔒 - High polysemy word (σ ≥ {sense_lock_threshold:.2f})
+            
+            **Recommendation:** Follow these words with:
+            - A micro-definition in parentheses
+            - A synonym or role marker
+            
+            **Example:** "Bank {{financial institution}} ledger..."
+            
+            This reduces ambiguity by focusing the LLM's attention on the intended meaning.
+            """)
 
     total_poly = sum(orig_poly_vals)  # Use original values for sum
     st.sidebar.markdown(f"### Polysemy budget\nTotal σ = **{total_poly:.2f}** (τ={POLY_STRESS_TAU:.2f})")
     
-    # Display explanation for gain knobs
-    if show_edge or show_poly:
-        st.sidebar.markdown("""
-        ### Visualization Controls
-        - **Gain**: Increases highlighting intensity for better visibility
-        - **Normalize**: Rescales values to maximize contrast between tokens
-        """)
-
     # Create a container for results that only shows after analysis
     if "tokens" in st.session_state:
         
@@ -570,7 +604,7 @@ if "tokens" in st.session_state:
                               show_edge, show_poly, 
                               edge_gain, poly_gain, 
                               show_sense_lock,
-                              POLY_STRESS_TAU)  # Pass current threshold value
+                              sense_lock_threshold)  # Use the separate threshold
                         html_words.append(styled_word)
 
                 st.markdown("<div style='font-family:monospace; line-height:2em'>"+"".join(html_words)+"</div>", unsafe_allow_html=True)
