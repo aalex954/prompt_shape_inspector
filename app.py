@@ -213,6 +213,11 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     # Base style with padding
     style = "display:inline-block; margin:1px; padding:1px 2px; position:relative; "
     
+    # Add red box outline for simultaneously highlighted tokens
+    is_simultaneous = edge_on and poly_on and edge_intensity > 0 and poly_intensity > 0
+    if is_simultaneous:
+        style += "border: 1px solid red; box-shadow: 0 0 2px red; "
+    
     # Apply highlighting based on active toggles
     if edge_on and poly_on:
         # When both are active, use a single color based on which value is higher
