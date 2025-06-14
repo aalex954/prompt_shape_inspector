@@ -257,8 +257,35 @@ def create_word_groups(tokens):
             # Add the whitespace token as its own group
             word_groups.append((i, i+1, token, True))
         else:
-            current_word.append(token)
-            current_indices.append(i)
+            # Check if this token contains whitespace internally
+            # This helps handle cases where a single token contains multiple words
+            if ' ' in token and len(token.strip()) > 0:
+                parts = token.split(' ')
+                for j, part in enumerate(parts):
+                    if part:  # Only add non-empty parts
+                        if current_word:
+                            # Complete the current word
+                            word = "".join(current_word)
+                            word_groups.append((current_indices[0], current_indices[-1] + 1, word, False))
+                            current_word = []
+                            current_indices = []
+                        
+                        # Add this part as a new word
+                        current_word = [part]
+                        current_indices = [i]
+                        
+                        # Complete it immediately
+                        word = "".join(current_word)
+                        word_groups.append((current_indices[0], current_indices[-1] + 1, word, False))
+                        current_word = []
+                        current_indices = []
+                        
+                        # Add a space after each part except the last one
+                        if j < len(parts) - 1:
+                            word_groups.append((i, i+1, " ", True))
+            else:
+                current_word.append(token)
+                current_indices.append(i)
     
     # Add the last word if there is one
     if current_word:
