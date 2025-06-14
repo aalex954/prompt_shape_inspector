@@ -309,11 +309,13 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     threshold = poly_threshold if poly_threshold is not None else POLY_STRESS_TAU
     
     # Calculate average scores for the word
-    avg_edge = sum(edge_vals[start_idx:end_idx]) / (end_idx - start_idx)
-    avg_poly = sum(poly_vals[start_idx:end_idx]) / (end_idx - start_idx)
+    avg_edge = sum(edge_vals[start_idx:end_idx]) / (end_idx - start_idx) if end_idx > start_idx else 0
+    avg_poly = sum(poly_vals[start_idx:end_idx]) / (end_idx - start_idx) if end_idx > start_idx else 0
     
     # Determine if this word needs sense-locking (if any token has high polysemy)
-    needs_sense_lock = any(p >= threshold for p in poly_vals[start_idx:end_idx])
+    needs_sense_lock = False
+    if start_idx < len(poly_vals) and end_idx <= len(poly_vals):
+        needs_sense_lock = any(p >= threshold for p in poly_vals[start_idx:end_idx])
     
     title = f"edge: {avg_edge:.2f} | σ: {avg_poly:.2f}"
     
@@ -329,6 +331,11 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     
     # Base style with padding
     style = "display:inline-block; margin:1px 2px; padding:1px 4px; position:relative; "
+    
+    # Add red box outline for simultaneously highlighted words
+    is_simultaneous = show_edge and show_poly and edge_intensity > 0 and poly_intensity > 0
+    if is_simultaneous:
+        style += "border: 1px solid red; box-shadow: 0 0 2px red; margin: 2px; "
     
     # Apply highlighting based on active toggles
     if show_edge and show_poly:
