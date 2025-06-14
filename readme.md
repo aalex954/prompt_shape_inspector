@@ -2,6 +2,11 @@
 
 [Promt Shape Inspector Demo](https://promptshapeinspector.streamlit.app/)
 
+![image](https://github.com/user-attachments/assets/08895910-6e89-4098-b4aa-745f43bcf9bb)
+
+![image](https://github.com/user-attachments/assets/007b4192-195f-43b8-a7d0-9ab6dd735c23)
+
+
 ## Overview
 
 The LLM Prompt Shape Inspector is an advanced prompt engineering tool that helps you analyze and optimize prompts for large language models. Using principles from mechanical engineering and vector space semantics, it treats prompts as geometric shapes with precise boundaries, enabling you to build more reliable, deterministic prompts.
