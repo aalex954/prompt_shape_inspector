@@ -47,6 +47,79 @@ Produces an enhanced version of your prompt using four engineering principles:
 3. **Dimensional dropout**: Removes low-information modifiers that add variance
 4. **Polysemy budget**: Tracks total ambiguity to keep prompts deterministic
 
+### What it actually does
+
+| Layer                                | What happens                                                                                                                                                                                              | Why it matters to engineers                                                                                            |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Tokenisation**                     | Uses the same encoder as the chosen embed-model (`text-embedding-3-small`) so the token boundaries you see are *exactly* what the model will see.                                                         | No surprises when you copy-paste the optimised prompt into production.                                                 |
+| **Edge-Finder**                      | Computes cosine-similarity between every token vector and a set of *constraint vectors* you supply (e.g. `context: cybersecurity`). High-similarity tokens are the “walls” that keep generation on-topic. | Lets you check that your *actual* constraints (brand names, legal phrases, etc.) are receiving enough signal strength. |
+| **Polysemy-Stress**                  | Looks up to four WordNet senses per word, embeds each gloss, and measures variance. High variance ⇒ the word is ambiguous.                                                                                | Surfaces the words most likely to cause drift (“bank”, “port”, “lead”, etc.).                                          |
+| **Occlusion Drift**                  | Drops each token in turn, re-embeds, and measures vector shift.                                                                                                                                           | Rough proxy for how much that token steers meaning—helps spot “hidden load-bearers”.                                   |
+| **Contractor / Enhanced Contractor** | Inserts `{definition}` placeholders after high-polysemy words and `*` after critical edge tokens, plus a constraints recap.                                                                               | Gives you a *copy-ready* scaffold. Fill the braces, keep the asterisks, and you have a tighter prompt.                 |
+| **UI/UX**                            | • Heat-map with adjustable gain/normalise<br>• Word-group vs token view<br>• Poly-budget meter / warnings                                                                                                 | Engineers can tweak thresholds until signal–noise balance “looks” right, then copy the prompt with one click.          |
+
+
+## Usage Tips
+
+### Recommended “best” workflow
+
+- **Design** Write the prompt as naturally as you like.
+- **Constrain** List 3-5 phrases that absolutely must stay salient.
+- **Analyse** Press ▶. Adjust sliders until the visual matches intent.
+- **Sense-lock** Accept / rewrite {definition} hints.
+- **Edge** reinforce Leave the * markers or duplicate constraints at top/bottom.
+- **Regression-test** Run the prompt through your evaluation harness.
+- **Ship** Store both the raw and engineered prompt in version control for auditability.
+
+> **Total extra time per prompt: ~2 minutes once you are familiar.
+
+### Constraint Phrases
+
+- Add 2-5 constraint phrases that define what your prompt should be about
+- Use the format "category: value" (e.g., "domain: finance", "tone: professional")
+- These help identify which tokens are most important for maintaining your constraints
+
+### Working with the Heat Map
+
+- Use the heat map to identify your prompt's most critical tokens (blue)
+- Pay special attention to words with high polysemy (green with 🔒)
+- Adjust thresholds to see more or fewer highlighted tokens
+
+### Optimizing Your Prompt
+
+1. Replace `{definition}` placeholders with clarifying information:
+   - "Bank {financial institution}" instead of just "Bank"
+   - "Cell {biology}" instead of just "Cell"
+
+2. Pay attention to tokens marked with `*`:
+   - These are critical constraint tokens
+   - Consider emphasizing or repeating them in your prompt
+
+3. Monitor your polysemy budget:
+   - If it's "HIGH" or "EXCESSIVE", add more definitions
+   - Break complex prompts into smaller, more focused steps
+
+### Making the insights actionable & attainable
+
+- **Start with explicit constraints**
+  - Put the non-negotiables (e.g., must mention `PCI-DSS`, `target language: PowerShell`) in the right-hand “Constraint phrases” box first. The Edge-Finder heat map instantly tells you whether those words are *present and weighted*.
+- **Iterate the thresholds, don’t accept the defaults**
+  - Raise Edge τ until only the tokens that truly matter stay blue.
+  - Lower Poly τ until you are comfortable with the number of 🔒 locks. This two-knob routine takes ~30 s and avoids over-engineering.
+- **Fill the `{definition}` blanks immediately**
+  - Engineers often leave these for “later” and never come back. Treat the placeholder text as a TODO that blocks merging the prompt into code. (CI hint: grep for `{definition}` in test pipelines.)
+
+- **Use the heat-map as a diff tool**
+  - Paste an old prompt, copy the metric values (poly budget, edge count), then paste the new one. Numbers going the wrong way? Reject the change.
+
+- **Link output quality to the Poly-budget**
+  - Empirically measure bleu/rouge/your-metric vs. total σ. Once the team sees the correlation, the red “❌ EXCESSIVE” badge becomes an objective guard-rail, not a subjective opinion.
+
+- **Automate where possible**
+  - All heavy lifting is ordinary Python; wrap the analysis functions in your unit-test suite so a failing test prints the heat-map HTML to the CI artefacts.
+
+---
+
 ## Theoretical Framework: Ideas as Shapes in Vector Space
 
 ### Core Concepts
@@ -84,34 +157,6 @@ The app is built on a geometric understanding of prompts:
 4. **Polysemy stress tensor**
    For token *t*, let {**v**ᵗ¹, **v**ᵗ², … **v**ᵗᴺ} be the sense-cluster centroids.
    The *polysemy stress* is σ(t) = var({**v**^t_s}).
-
-## Usage Tips
-
-### Constraint Phrases
-
-- Add 2-5 constraint phrases that define what your prompt should be about
-- Use the format "category: value" (e.g., "domain: finance", "tone: professional")
-- These help identify which tokens are most important for maintaining your constraints
-
-### Working with the Heat Map
-
-- Use the heat map to identify your prompt's most critical tokens (blue)
-- Pay special attention to words with high polysemy (green with 🔒)
-- Adjust thresholds to see more or fewer highlighted tokens
-
-### Optimizing Your Prompt
-
-1. Replace `{definition}` placeholders with clarifying information:
-   - "Bank {financial institution}" instead of just "Bank"
-   - "Cell {biology}" instead of just "Cell"
-
-2. Pay attention to tokens marked with `*`:
-   - These are critical constraint tokens
-   - Consider emphasizing or repeating them in your prompt
-
-3. Monitor your polysemy budget:
-   - If it's "HIGH" or "EXCESSIVE", add more definitions
-   - Break complex prompts into smaller, more focused steps
 
 ## Common Issues and Solutions
 
