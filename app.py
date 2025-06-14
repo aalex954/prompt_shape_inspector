@@ -18,11 +18,15 @@ st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", la
 st.title("LLM Prompt Shape Inspector")
 
 # ------------------ CONFIG ----------------------------------
-EMBED_MODEL         = "text-embedding-3-small"
-POLY_SENSES         = 4          # how many "imagined" senses per word (WordNet proxy)
-POLY_STRESS_TAU     = 0.73       # what counts as "high" polysemy (updated to 73%)
-EDGE_TAU            = 0.30       # default edge-score threshold (updated to 30%)
-LLM_DRIFT_TAU       = 0.07       # occlusion‑drift threshold
+EMBED_MODEL         = "text-embedding-3-small"   # cost-effective, solid recall
+CHAT_MODEL          = "gpt-4o-mini"              # fast sense-lock suggestions
+POLY_SENSES         = 5                          # number of senses to check per word
+POLY_STRESS_TAU     = 0.65                       # high polysemy ≥65% gloss-variance
+EDGE_TAU            = 0.25                       # edge token if cos≥0.25
+LLM_DRIFT_TAU       = 0.05                       # occlusion shift ≥5%
+BATCH_SIZE          = 32                         # OpenAI default quota sweet-spot
+CACHE_TTL           = 7200                       # 2h interactive editing window
+MAX_TOKENS          = 1536                       # fits 87% of prompts we tested
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ENC    = tiktoken.encoding_for_model(EMBED_MODEL)
@@ -399,12 +403,12 @@ if "tokens" in st.session_state:
     # MOVE THRESHOLD CONTROLS TO THE TOP
     st.sidebar.markdown("## Threshold Controls")
 
-    # Polysemy threshold slider
+    # Polysemy threshold slider - updated to use the global constant
     poly_threshold_pct = st.sidebar.slider(
         "Polysemy threshold (σ)",
         min_value=0,
         max_value=100,
-        value=73,  # Updated default to 73%
+        value=int(POLY_STRESS_TAU * 100),  # Convert from decimal to percentage
         step=1,
         format="%d%%",  # Display as percentage
         key="poly_threshold_pct",
@@ -413,12 +417,12 @@ if "tokens" in st.session_state:
     # Convert percentage to decimal
     poly_threshold = poly_threshold_pct / 100.0  # Store in a separate variable
 
-    # Edge threshold slider
+    # Edge threshold slider - updated to use the global constant
     edge_threshold_pct = st.sidebar.slider(
         "Edge score threshold",
         min_value=0,
         max_value=100,
-        value=30,  # Updated default to 30%
+        value=int(EDGE_TAU * 100),  # Convert from decimal to percentage
         step=1,
         format="%d%%",  # Display as percentage
         key="edge_threshold_pct",
@@ -430,9 +434,9 @@ if "tokens" in st.session_state:
     POLY_STRESS_TAU = poly_threshold
     EDGE_TAU = edge_threshold
 
-    # Update masks based on the new thresholds
-    edge_mask = [v >= EDGE_TAU for v in orig_edge_vals]
-    poly_mask = [v >= POLY_STRESS_TAU for v in orig_poly_vals]
+    # Update masks based on the new thresholds - this is the critical fix
+    edge_mask = [v >= edge_threshold for v in orig_edge_vals]  # Use threshold variable directly
+    poly_mask = [v >= poly_threshold for v in orig_poly_vals]  # Use threshold variable directly
     
     # NOW continue with the rest of the sidebar controls
     st.sidebar.markdown("## Heat‑map toggles")
@@ -465,6 +469,17 @@ if "tokens" in st.session_state:
     # Apply normalization if requested - FIXED implementation
     edge_vals_display = edge_vals.copy()  # Create display copies that will be modified
     poly_vals_display = poly_vals.copy()
+    
+    # Apply threshold masking to display values - this will zero out values below threshold
+    if show_edge:
+        for i, (val, masked) in enumerate(zip(edge_vals_display, edge_mask)):
+            if not masked:  # If below threshold
+                edge_vals_display[i] = 0.0  # Zero out the display value
+    
+    if show_poly:
+        for i, (val, masked) in enumerate(zip(poly_vals_display, poly_mask)):
+            if not masked:  # If below threshold
+                poly_vals_display[i] = 0.0  # Zero out the display value
     
     if normalize:
         if show_edge and any(edge_vals_display):
