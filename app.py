@@ -430,14 +430,14 @@ if "tokens" in st.session_state:
     )
     edge_threshold = edge_threshold_pct / 100.0  # Store in a separate variable
 
-    # Update the global thresholds EARLY
-    POLY_STRESS_TAU = poly_threshold
-    EDGE_TAU = edge_threshold
+    # Store thresholds in session state for persistence
+    st.session_state.edge_threshold = edge_threshold
+    st.session_state.poly_threshold = poly_threshold
 
     # Update masks based on the new thresholds - this is the critical fix
     edge_mask = [v >= edge_threshold for v in orig_edge_vals]  # Use threshold variable directly
     poly_mask = [v >= poly_threshold for v in orig_poly_vals]  # Use threshold variable directly
-    
+
     # NOW continue with the rest of the sidebar controls
     st.sidebar.markdown("## Heat‑map toggles")
 
