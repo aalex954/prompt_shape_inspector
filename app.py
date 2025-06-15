@@ -140,10 +140,10 @@ def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
     optimized = []
     last_was_definition = False
     
-    # EDGE REINFORCEMENT: Start with key constraints
+    # EDGE REINFORCEMENT: Start with key constraints using natural language
     if top_edge_tokens:
-        # Create a front summary of key constraints
-        front_summary = f"[Key constraints: {', '.join(top_edge_tokens[:3])}] "
+        # Create a front summary of key constraints using natural language
+        front_summary = f"Key constraints: {', '.join(top_edge_tokens[:3])}. "
         optimized.append(front_summary)
     
     # Process the original prompt
@@ -169,15 +169,14 @@ def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
                 last_was_definition = True
                 break
                 
-        # Apply edge reinforcement to critical tokens
-        if i in top_edge_indices and not last_was_definition:
-            optimized.append("*")  # Mark for emphasis
-            last_was_definition = False
+        # Apply edge reinforcement to critical tokens using natural language emphasis
+        # Remove the asterisk (*) symbol and instead rely on position and clarity
+        # The token itself is already emphasized by its position in the key constraints
     
-    # EDGE REINFORCEMENT: End with key constraints
+    # EDGE REINFORCEMENT: End with key constraints using natural language
     if top_edge_tokens and len(tokens) > 30:
-        # Create a final reminder of key constraints
-        end_summary = f" [Remember key constraints: {', '.join(top_edge_tokens[:3])}]"
+        # Create a final reminder of key constraints in natural language
+        end_summary = f" Remember the key constraints: {', '.join(top_edge_tokens[:3])}."
         optimized.append(end_summary)
     
     # Create the optimized text
@@ -186,8 +185,6 @@ def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
     # Clean up spacing around the inserted placeholders
     result = re.sub(r"\s+{definition}", " {definition}", result)
     result = re.sub(r"{definition}\s+", "{definition} ", result)
-    result = re.sub(r"\*\s+", "* ", result)
-    result = re.sub(r"\s+\*", " *", result)
     result = re.sub(r"\s+", " ", result).strip()
     
     return result, total_poly, poly_budget_exceeded
@@ -774,7 +771,7 @@ if "tokens" in st.session_state:
         # Show the optimized prompt
         st.code(optimized, language="markdown")
 
-        # Add guidance on how to use the engineering principles
+        # Update the explanation of the engineering principles to align with the changes:
         st.markdown("""
         #### Applied Engineering Principles:
 
@@ -782,9 +779,10 @@ if "tokens" in st.session_state:
            - Add a brief definition, synonym, or role: "bank {financial institution}"
            - This collapses ambiguity and narrows the semantic space
 
-        2. **Edge reinforcement:** Critical constraint tokens marked with `*`
-           - Emphasize or repeat these tokens to strengthen boundaries
-           - Key constraints are also repeated at start/end for positional bias
+        2. **Edge reinforcement:** Critical constraints highlighted using natural language
+           - Key constraints are presented at the beginning for context
+           - Important constraints are repeated at the end for reinforcement
+           - Natural language framing improves readability and LLM understanding
 
         3. **Dimensional dropout:** Low-information modifiers removed
            - Vague intensifiers like "very", "quite" add variance without precision
