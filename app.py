@@ -458,7 +458,11 @@ def compute_adaptive_thresholds(edge_vals, poly_vals):
     poly_percentile = 75
     poly_threshold = np.percentile(sorted_poly, poly_percentile) if sorted_poly else POLY_STRESS_TAU
     
-    return edge_threshold, poly_threshold
+    # Use the 80th percentile for sense-locking threshold (slightly more selective)
+    sense_lock_percentile = 80
+    sense_lock_threshold = np.percentile(sorted_poly, sense_lock_percentile) if sorted_poly else POLY_STRESS_TAU * 1.2
+    
+    return edge_threshold, poly_threshold, sense_lock_threshold
 
 # Modify the analysis button handler to include adaptive thresholds
 if st.button("▶ Analyse") and user_prompt.strip():
@@ -470,7 +474,7 @@ if st.button("▶ Analyse") and user_prompt.strip():
     poly_vals = poly_stress(tokens)
     
     # Compute adaptive thresholds based on the distribution
-    adaptive_edge_tau, adaptive_poly_tau = compute_adaptive_thresholds(edge_vals, poly_vals)
+    adaptive_edge_tau, adaptive_poly_tau, adaptive_sense_lock_tau = compute_adaptive_thresholds(edge_vals, poly_vals)
     
     # Store both the fixed and adaptive thresholds
     st.session_state.update(
@@ -478,7 +482,8 @@ if st.button("▶ Analyse") and user_prompt.strip():
         edge_vals=edge_vals, 
         poly_vals=poly_vals,
         adaptive_edge_tau=adaptive_edge_tau,
-        adaptive_poly_tau=adaptive_poly_tau
+        adaptive_poly_tau=adaptive_poly_tau,
+        adaptive_sense_lock_tau=adaptive_sense_lock_tau
     )
 
 # Then modify the threshold controls to use adaptive thresholds as defaults
@@ -490,6 +495,7 @@ if "tokens" in st.session_state:
     # Get adaptive thresholds from session state
     adaptive_edge_tau = st.session_state.get("adaptive_edge_tau", EDGE_TAU)
     adaptive_poly_tau = st.session_state.get("adaptive_poly_tau", POLY_STRESS_TAU)
+    adaptive_sense_lock_tau = st.session_state.get("adaptive_sense_lock_tau", POLY_STRESS_TAU * 1.2)
 
     # Store original values for use in the top words summary
     orig_edge_vals = edge_vals.copy()
@@ -512,11 +518,13 @@ if "tokens" in st.session_state:
         **Adaptive thresholds for this prompt:**
         - Edge: {adaptive_edge_tau:.2f} (70th percentile)
         - Polysemy: {adaptive_poly_tau:.2f} (75th percentile)
+        - Sense-lock: {adaptive_sense_lock_tau:.2f} (80th percentile)
         """)
         
     # Default values for sliders - use adaptive thresholds if enabled
     default_poly_threshold = int(adaptive_poly_tau * 100) if use_adaptive_thresholds else int(POLY_STRESS_TAU * 100)
     default_edge_threshold = int(adaptive_edge_tau * 100) if use_adaptive_thresholds else int(EDGE_TAU * 100)
+    default_sense_lock_threshold = int(adaptive_sense_lock_tau * 100) if use_adaptive_thresholds else int(POLY_STRESS_TAU * 120)
 
     # Polysemy threshold slider - updated to use adaptive defaults
     poly_threshold_pct = st.sidebar.slider(
@@ -546,9 +554,23 @@ if "tokens" in st.session_state:
     )
     edge_threshold = edge_threshold_pct / 100.0  # Store in a separate variable
 
+    # Sense-locking threshold slider (now uses adaptive thresholds)
+    sense_lock_threshold_pct = st.sidebar.slider(
+        "Sense-locking threshold",
+        min_value=0,
+        max_value=100,
+        value=default_sense_lock_threshold,
+        step=1,
+        format="%d%%",
+        key="sense_lock_threshold_pct",
+        help="Threshold for suggesting sense-locking on words (higher = fewer words flagged)"
+    )
+    sense_lock_threshold = sense_lock_threshold_pct / 100.0
+
     # Store thresholds in session state for persistence
     st.session_state.edge_threshold = edge_threshold
     st.session_state.poly_threshold = poly_threshold
+    st.session_state.sense_lock_threshold = sense_lock_threshold
 
     # Update masks based on the new thresholds - this is the critical fix
     edge_mask = [v >= edge_threshold for v in orig_edge_vals]  # Use threshold variable directly
@@ -641,22 +663,13 @@ if "tokens" in st.session_state:
     # Add separate sense-locking threshold with its own slider
     st.sidebar.markdown("## Sense-locking Controls")
     
-    # Sense-locking threshold slider (separated from polysemy threshold)
-    sense_lock_threshold_pct = st.sidebar.slider(
-        "Sense-locking threshold",
-        min_value=0,
-        max_value=100,
-        value=int(POLY_STRESS_TAU * 100),  # Start with same value as poly threshold
-        step=1,
-        format="%d%%",
-        key="sense_lock_threshold_pct",
-        help="Threshold for suggesting sense-locking on words (higher = fewer words flagged)"
-    )
-    sense_lock_threshold = sense_lock_threshold_pct / 100.0
+    # REMOVE the duplicate slider that's causing the error
+    # Instead, just use the value that was already set earlier
+    # sense_lock_threshold_pct = st.sidebar.slider(...)
 
-    # Sense-locking toggle with unique key
+    # Just keep the checkbox for toggling sense-lock display
     show_sense_lock = st.sidebar.checkbox("Show sense-locking suggestions", value=True, key="show_sense_lock")
-    
+
     # Add legend for the sense-locking feature in a minimized expander
     if show_sense_lock:
         with st.sidebar.expander("Sense-locking Legend", expanded=False):
