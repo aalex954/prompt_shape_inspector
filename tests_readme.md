@@ -103,6 +103,51 @@ In addition to the HTML report, the following files are generated:
 - Modify the `evaluate_response()` function to add custom metrics
 - Adjust the `generate_completion()` parameters to test different model settings
 
+## Performance Optimizations
+
+The testing suite includes several cost-control and performance optimizations:
+
+### Memoization & Caching
+
+- **API Call Caching**: All calls to OpenAI APIs are automatically cached to prevent duplicate requests
+- **Definition Filling**: The expensive `fill_in_definitions()` function is memoized to reuse results
+- **Completion Generation**: Model responses are cached using input prompt as the key
+- **Persistent Cache**: Results can be saved between test runs for continuous development
+
+### Unified Testing Pipeline
+
+- **Single-Pass Processing**: Tests run through a unified pipeline with parameter flags
+- **Configurable Optimizations**: Enable/disable specific features through the options dictionary
+- **Consolidated API Usage**: Processing of basic and enhanced modes consolidated where possible
+
+### Performance Metrics
+
+The testing suite tracks and reports:
+
+- **API Call Counts**: Total number of API calls made during testing
+- **Cache Hit Rate**: Percentage of calls that were served from cache
+- **Estimated Cost Savings**: Approximate reduction in API costs due to caching
+
+### Usage Tips
+
+To maximize performance and minimize costs:
+
+1. **Development Mode**: Set the `TEST_DEV_MODE=true` environment variable to run tests on a single scenario first
+2. **Test Subsets**: Use the `optimization_options` parameter to test specific features in isolation
+3. **Staged Testing**: Test basic optimizations before running full enhanced tests
+
+Example:
+
+```python
+# Test only basic optimization with adaptive thresholds
+options = {
+    'use_basic': True,
+    'use_enhanced': False,
+    'use_adaptive_thresholds': True
+}
+results = run_prompt_test(scenario, options)
+```
+
 ## License
 
 This testing suite is released under the same license as the Prompt Shape Inspector tool.
