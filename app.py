@@ -438,6 +438,29 @@ with col_opts:
     raw_constraints = st.text_area("constraints", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
     constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
 
+# Add this function to compute adaptive thresholds based on percentiles
+def compute_adaptive_thresholds(edge_vals, poly_vals):
+    """
+    Compute adaptive thresholds based on the distribution of values in the current prompt.
+    Returns percentile-based thresholds rather than fixed constants.
+    """
+    import numpy as np
+    
+    # Sort the values for percentile computation
+    sorted_edge = sorted(edge_vals)
+    sorted_poly = sorted(poly_vals)
+    
+    # Use the 70th percentile for edge threshold (adjustable)
+    edge_percentile = 70
+    edge_threshold = np.percentile(sorted_edge, edge_percentile) if sorted_edge else EDGE_TAU
+    
+    # Use the 75th percentile for polysemy threshold (adjustable)
+    poly_percentile = 75
+    poly_threshold = np.percentile(sorted_poly, poly_percentile) if sorted_poly else POLY_STRESS_TAU
+    
+    return edge_threshold, poly_threshold
+
+# Modify the analysis button handler to include adaptive thresholds
 if st.button("▶ Analyse") and user_prompt.strip():
     token_ids = ENC.encode(user_prompt, disallowed_special=())
     tokens    = [ENC.decode([tid]) for tid in token_ids]
@@ -445,16 +468,28 @@ if st.button("▶ Analyse") and user_prompt.strip():
     c_vecs   = embed(constraints)
     edge_vals = edge_scores(tokens, c_vecs)
     poly_vals = poly_stress(tokens)
+    
+    # Compute adaptive thresholds based on the distribution
+    adaptive_edge_tau, adaptive_poly_tau = compute_adaptive_thresholds(edge_vals, poly_vals)
+    
+    # Store both the fixed and adaptive thresholds
+    st.session_state.update(
+        tokens=tokens, 
+        edge_vals=edge_vals, 
+        poly_vals=poly_vals,
+        adaptive_edge_tau=adaptive_edge_tau,
+        adaptive_poly_tau=adaptive_poly_tau
+    )
 
-    st.session_state.update(tokens=tokens, edge_vals=edge_vals, poly_vals=poly_vals)
-
-# Fix the normalize function and layout issues
-
-# Modify the normalize logic to properly adjust the values before styling
+# Then modify the threshold controls to use adaptive thresholds as defaults
 if "tokens" in st.session_state:
     tokens    = st.session_state["tokens"]
     edge_vals = st.session_state["edge_vals"]
     poly_vals = st.session_state["poly_vals"]
+    
+    # Get adaptive thresholds from session state
+    adaptive_edge_tau = st.session_state.get("adaptive_edge_tau", EDGE_TAU)
+    adaptive_poly_tau = st.session_state.get("adaptive_poly_tau", POLY_STRESS_TAU)
 
     # Store original values for use in the top words summary
     orig_edge_vals = edge_vals.copy()
@@ -462,29 +497,50 @@ if "tokens" in st.session_state:
     
     # MOVE THRESHOLD CONTROLS TO THE TOP
     st.sidebar.markdown("## Threshold Controls")
+    
+    # Add option to use adaptive thresholds
+    use_adaptive_thresholds = st.sidebar.checkbox(
+        "Use adaptive thresholds", 
+        value=True, 
+        key="use_adaptive_thresholds",
+        help="Automatically set thresholds based on the distribution of values in your prompt"
+    )
+    
+    # Display the actual values being used if adaptive is enabled
+    if use_adaptive_thresholds:
+        st.sidebar.info(f"""
+        **Adaptive thresholds for this prompt:**
+        - Edge: {adaptive_edge_tau:.2f} (70th percentile)
+        - Polysemy: {adaptive_poly_tau:.2f} (75th percentile)
+        """)
+        
+    # Default values for sliders - use adaptive thresholds if enabled
+    default_poly_threshold = int(adaptive_poly_tau * 100) if use_adaptive_thresholds else int(POLY_STRESS_TAU * 100)
+    default_edge_threshold = int(adaptive_edge_tau * 100) if use_adaptive_thresholds else int(EDGE_TAU * 100)
 
-    # Polysemy threshold slider - updated to use the global constant
+    # Polysemy threshold slider - updated to use adaptive defaults
     poly_threshold_pct = st.sidebar.slider(
         "Polysemy threshold (σ)",
         min_value=0,
         max_value=100,
-        value=int(POLY_STRESS_TAU * 100),  # Convert from decimal to percentage
+        value=default_poly_threshold,
         step=1,
-        format="%d%%",  # Display as percentage
+        format="%d%%",
         key="poly_threshold_pct",
         help="Threshold for considering a word to have high polysemy (higher = fewer words flagged)"
     )
+    
     # Convert percentage to decimal
     poly_threshold = poly_threshold_pct / 100.0  # Store in a separate variable
 
-    # Edge threshold slider - updated to use the global constant
+    # Edge threshold slider - updated to use adaptive defaults
     edge_threshold_pct = st.sidebar.slider(
         "Edge score threshold",
         min_value=0,
         max_value=100,
-        value=int(EDGE_TAU * 100),  # Convert from decimal to percentage
+        value=default_edge_threshold,
         step=1,
-        format="%d%%",  # Display as percentage
+        format="%d%%",
         key="edge_threshold_pct",
         help="Threshold for considering a token as an edge token (higher = fewer words flagged)"
     )

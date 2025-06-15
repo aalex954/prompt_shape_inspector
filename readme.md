@@ -222,3 +222,14 @@ The tool now uses a more targeted approach to sense-locking:
 - Considers both **polysemy score** and **edge score**
 - Skips verbs, adjectives, and function words
 - Results in fewer, more impactful definitional placeholders
+
+### Adaptive Thresholds
+
+The tool now offers adaptive thresholds that automatically adjust based on each prompt's unique characteristics:
+
+- **Distribution-based calibration**: Thresholds are computed as percentiles of the value distribution in your prompt
+- **Consistent results**: Works equally well for short prompts and lengthy documents
+- **Self-adjusting**: Adapts to different writing styles, domains, and constraint types
+- **Manual override**: Can be disabled in favor of fixed thresholds when needed
+
+This ensures more reliable identification of edge tokens and polysemous words across heterogeneous prompts without requiring manual threshold tuning for each new prompt.
