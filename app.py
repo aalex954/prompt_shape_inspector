@@ -96,17 +96,16 @@ def occlusion_drift(tokens: List[str], full_vec):
 
 # ---------------- Contractor (4.3) --------------------------
 
-def contractor(tokens, edge_mask, poly_mask, poly_vals):
-    """Generate optimized prompt with suggestions for sense-locking."""
+def contractor(tokens, edge_mask, poly_mask, poly_vals, edge_vals):
+    """Generate optimized prompt with smarter sense-locking."""
     full_vec = embed("".join(tokens))
     drift    = occlusion_drift(tokens, full_vec)
     
     optimized = []
-    for tok, d, e, p, poly in zip(tokens, drift, edge_mask, poly_mask, poly_vals):
+    for i, (tok, d, e, p, poly_val, edge_val) in enumerate(zip(tokens, drift, edge_mask, poly_mask, poly_vals, edge_vals)):
         optimized.append(tok)
-        # Add suggestion placeholder after high-polysemy words
-        # Use the current threshold value
-        if poly >= POLY_STRESS_TAU:
+        # Only add sense-locking where truly beneficial
+        if poly_val >= POLY_STRESS_TAU and should_sense_lock(tok, poly_val, edge_val, POLY_STRESS_TAU):
             optimized.append("{definition}")
     
     # Create the optimized text
@@ -119,9 +118,7 @@ def contractor(tokens, edge_mask, poly_mask, poly_vals):
     return result
 
 def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
-    """Generate an engineering-optimized prompt with sense-locking and edge reinforcement."""
-    # Create high-quality prompt based on engineering principles
-    
+    """Generate an engineering-optimized prompt with smarter sense-locking and edge reinforcement."""
     # Find top edge tokens (most constraining)
     edge_pairs = [(i, t, e) for i, (t, e) in enumerate(zip(tokens, edge_vals)) if e >= EDGE_TAU]
     edge_pairs.sort(key=lambda x: x[2], reverse=True)
@@ -129,8 +126,11 @@ def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
     top_edge_indices = [i for i, _, _ in top_edges]
     top_edge_tokens = [t for _, t, _ in top_edges]
     
-    # Find high polysemy tokens that need sense-locking
-    poly_tokens = [(i, t, p) for i, (t, p) in enumerate(zip(tokens, poly_vals)) if p >= POLY_STRESS_TAU]
+    # Find high polysemy tokens that need sense-locking (using smart filtering)
+    poly_tokens = []
+    for i, (t, p, e) in enumerate(zip(tokens, poly_vals, edge_vals)):
+        if p >= POLY_STRESS_TAU and should_sense_lock(t, p, e, POLY_STRESS_TAU):
+            poly_tokens.append((i, t, p))
     
     # Calculate polysemy budget
     total_poly = sum(poly_vals)
@@ -374,6 +374,57 @@ def copy_to_clipboard(text: str):
         # Fallback for Streamlit Cloud (no clipboard access)
         st.session_state.clipboard_text = text
         return True
+
+# Add this function to identify parts of speech and filter sense-locking candidates
+def should_sense_lock(token, poly_score, edge_score, threshold):
+    """
+    Determine if a token should receive sense-locking based on:
+    1. Part of speech (prioritize nouns)
+    2. Polysemy score (must be above threshold)
+    3. Edge score (higher edge tokens need more precise meaning)
+    """
+    import nltk
+    try:
+        from nltk.tag import pos_tag
+        from nltk import word_tokenize
+    except (LookupError, OSError):
+        nltk.download('punkt', quiet=True)
+        nltk.download('averaged_perceptron_tagger', quiet=True)
+        from nltk.tag import pos_tag
+        from nltk import word_tokenize
+    
+    # Skip short tokens and punctuation
+    if len(token.strip()) <= 1 or not any(c.isalpha() for c in token):
+        return False
+    
+    # Must be above polysemy threshold
+    if poly_score < threshold:
+        return False
+        
+    # Get part of speech
+    try:
+        pos = pos_tag([token.lower().strip()])[0][1]
+        
+        # Prioritize nouns (NN, NNS, NNP, NNPS)
+        if pos.startswith('NN'):
+            # For nouns, check WordNet for multiple senses
+            wn = _lazy_wordnet()
+            senses = wn.synsets(token.strip())
+            
+            # Only apply to nouns with 2+ senses
+            if len(senses) >= 2:
+                # For high edge-score nouns, we definitely want sense-locking
+                if edge_score >= EDGE_TAU:
+                    return True
+                    
+                # For lower edge score nouns, still sense-lock if very ambiguous
+                return poly_score >= threshold * 1.2  # 20% higher bar
+                
+        # Skip verbs, adjectives, and other parts of speech
+        return False
+    except Exception:
+        # If POS tagging fails, fall back to just the polysemy threshold
+        return poly_score >= threshold
 
 # --------------------------- Streamlit GUI ------------------
 
@@ -620,7 +671,7 @@ if "tokens" in st.session_state:
             Fill in the `{definition}` placeholders with clarifying information for ambiguous terms.
             Example: "bank {financial institution}" or "bank {river embankment}"
             """)
-            optimized = contractor(tokens, edge_mask, poly_mask, orig_poly_vals)  # Use original values
+            optimized = contractor(tokens, edge_mask, poly_mask, orig_poly_vals, orig_edge_vals)  # Add edge_vals parameter
             st.code(optimized, language="markdown")
             if st.button("📋 Copy optimized prompt", key="copy_btn_1"):
                 if copy_to_clipboard(optimized):

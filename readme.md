@@ -214,3 +214,11 @@ streamlit run app.py
 ---
 
 By instrumenting your prompts with polysemy-stress meters and edge-coverage heat maps, you'll convert the abstract philosophy of "the shape of ideas" into a concrete engineering control system that makes your LLM workflows steadier, safer, and more scalable.
+
+### Smart Sense-Locking
+
+The tool now uses a more targeted approach to sense-locking:
+- Prioritizes **nouns** with multiple WordNet senses
+- Considers both **polysemy score** and **edge score**
+- Skips verbs, adjectives, and function words
+- Results in fewer, more impactful definitional placeholders
