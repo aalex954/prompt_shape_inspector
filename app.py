@@ -433,9 +433,8 @@ with col_prompt:
 # Update the UI section to show top edge and polysemy words
 
 with col_opts:
-    st.markdown("### 🔧 Constraint phrases (one per line)")
-    st.markdown("Constraints define the semantic boundaries of your prompt. They help identify which tokens are most important for maintaining these constraints. Enter terms that define what your prompt should be about")
-    raw_constraints = st.text_area("constraints", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
+    st.markdown("🔧 Constraint phrases (one per line)")
+    raw_constraints = st.text_area("Enter terms that define what your prompt should be about", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
     constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
 
 # Add this function to compute adaptive thresholds based on percentiles
