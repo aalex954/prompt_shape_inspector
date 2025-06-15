@@ -56,3 +56,4 @@ build/
 # Uncomment if you generate coverage or profiling data
 # prof/
 # profile.prof
+test_reports
