@@ -829,8 +829,11 @@ if "tokens" in st.session_state:
                 edge_pairs = [(t, e) for t, e in zip(tokens, orig_edge_vals)]
                 edge_pairs.sort(key=lambda x: x[1], reverse=True)
                 
+                # Filter out control characters and keep only meaningful tokens
+                filtered_edge_pairs = [(t, e) for t, e in edge_pairs if t.strip() and any(c.isalnum() for c in t)]
+                
                 # Take top 10 or fewer if not enough
-                top_edges = edge_pairs[:10]
+                top_edges = filtered_edge_pairs[:10]
                 
                 # Display as a table
                 if top_edges:
@@ -854,8 +857,11 @@ if "tokens" in st.session_state:
                 poly_pairs = [(t, p) for t, p in zip(tokens, orig_poly_vals)]
                 poly_pairs.sort(key=lambda x: x[1], reverse=True)
                 
+                # Filter out control characters and keep only meaningful tokens
+                filtered_poly_pairs = [(t, p) for t, p in poly_pairs if t.strip() and any(c.isalnum() for c in t)]
+                
                 # Take top 10 or fewer if not enough
-                top_poly = poly_pairs[:10]
+                top_poly = filtered_poly_pairs[:10]
                 
                 # Display as a table
                 if top_poly:
