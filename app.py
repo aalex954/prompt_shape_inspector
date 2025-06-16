@@ -422,21 +422,7 @@ def should_sense_lock(token, poly_score, edge_score, threshold):
     except Exception:
         # If POS tagging fails, fall back to just the polysemy threshold
         return poly_score >= threshold
-
-# --------------------------- Streamlit GUI ------------------
-
-col_prompt, col_opts = st.columns([3,1])
-
-with col_prompt:
-    user_prompt = st.text_area("Enter your prompt …", height=200)
-
-# Update the UI section to show top edge and polysemy words
-
-with col_opts:
-    st.markdown("🔧 Constraint phrases (one per line)")
-    raw_constraints = st.text_area("Enter terms that define what your prompt should be about", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
-    constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
-
+    
 # Add this function to compute adaptive thresholds based on percentiles
 def compute_adaptive_thresholds(edge_vals, poly_vals):
     """
@@ -462,6 +448,20 @@ def compute_adaptive_thresholds(edge_vals, poly_vals):
     sense_lock_threshold = np.percentile(sorted_poly, sense_lock_percentile) if sorted_poly else POLY_STRESS_TAU * 1.2
     
     return edge_threshold, poly_threshold, sense_lock_threshold
+
+# --------------------------- Streamlit GUI ------------------
+
+col_prompt, col_opts = st.columns([3,1])
+
+with col_prompt:
+    user_prompt = st.text_area("Enter your prompt …", height=200)
+
+# Update the UI section to show top edge and polysemy words
+
+with col_opts:
+    st.markdown("🔧 Constraint phrases (one per line)")
+    raw_constraints = st.text_area("Enter terms that define what your prompt should be about", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
+    constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
 
 # Modify the analysis button handler to include adaptive thresholds
 if st.button("▶ Analyse") and user_prompt.strip():
@@ -622,13 +622,6 @@ if "tokens" in st.session_state:
                                    key="normalize",
                                    help="Adjusts the highlighting to emphasize the relative differences between tokens")
 
-    # Remove the expanded Visualization Controls section since we now have tooltips
-    # with st.sidebar.expander("Visualization Controls", expanded=True):
-    #     st.markdown("""
-    #     - **Gain**: Increases highlighting intensity for better visibility
-    #     - **Normalize**: Rescales values to maximize contrast between tokens
-    #     """)
-
     # Apply normalization if requested - FIXED implementation
     edge_vals_display = edge_vals.copy()  # Create display copies that will be modified
     poly_vals_display = poly_vals.copy()
@@ -661,10 +654,6 @@ if "tokens" in st.session_state:
 
     # Add separate sense-locking threshold with its own slider
     st.sidebar.markdown("## Sense-locking Controls")
-    
-    # REMOVE the duplicate slider that's causing the error
-    # Instead, just use the value that was already set earlier
-    # sense_lock_threshold_pct = st.sidebar.slider(...)
 
     # Just keep the checkbox for toggling sense-lock display
     show_sense_lock = st.sidebar.checkbox("Show sense-locking suggestions", value=True, key="show_sense_lock")
