@@ -510,7 +510,6 @@ with col_opts:
     auto_constraints = st.checkbox("Auto-generate constraints", value=True, 
                                   help="Automatically generate constraint phrases based on your prompt")
     
-    st.markdown("🔧 Constraint phrases (one per line)")
     
     # Process auto-constraints if enabled and no constraints provided
     if auto_constraints and user_prompt.strip() and "auto_constraints" not in st.session_state:
@@ -520,11 +519,11 @@ with col_opts:
     # Determine what to show in the constraints box
     initial_constraints = st.session_state.get("auto_constraints", []) if auto_constraints else []
     if not initial_constraints:
-        initial_constraints = ["context: prompt engineering\nformat: Text\nstyle: strict"]
+        initial_constraints = "context: prompt engineering\nformat: Text\nstyle: strict"
     else:
         initial_constraints = "\n".join(initial_constraints)
     
-    raw_constraints = st.text_area("Enter terms that define what your prompt should be about", 
+    raw_constraints = st.text_area("🔧 Constraint phrases (one per line)", 
                                  value=initial_constraints, 
                                  height=150)
     
