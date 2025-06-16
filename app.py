@@ -49,6 +49,9 @@ def embed(texts):
     """Return unit‑norm vectors for a string or list of strings."""
     if isinstance(texts, str):
         texts = [texts]
+    # Handle empty input
+    if not texts:
+        return []  # Return empty list for empty input
     resp  = client.embeddings.create(model=EMBED_MODEL, input=texts)
     vecs  = [np.asarray(d.embedding, dtype=np.float32) for d in resp.data]
     vecs  = [v/np.linalg.norm(v) for v in vecs]
@@ -449,6 +452,31 @@ def compute_adaptive_thresholds(edge_vals, poly_vals):
     
     return edge_threshold, poly_threshold, sense_lock_threshold
 
+def generate_auto_constraints(prompt_text):
+    """Generate constraint phrases based on the input prompt using LLM."""
+    if not prompt_text or len(prompt_text.strip()) < 10:
+        return []
+        
+    try:
+        response = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an AI that extracts key topics and constraints from text. Extract 2-4 key topics or constraints from the text as individual lines. Each line should be in the format 'topic: detail' or 'constraint: detail'."},
+                {"role": "user", "content": f"Extract key topics or constraints from this text:\n\n{prompt_text[:500]}"}
+            ],
+            temperature=0.2,
+            max_tokens=100
+        )
+        
+        # Extract constraints from response
+        constraints = response.choices[0].message.content.strip().split('\n')
+        constraints = [c.strip() for c in constraints if c.strip()]
+        
+        return constraints
+    except Exception as e:
+        st.warning(f"Failed to auto-generate constraints: {str(e)}")
+        return []
+
 # --------------------------- Streamlit GUI ------------------
 
 col_prompt, col_opts = st.columns([3,1])
@@ -456,18 +484,47 @@ col_prompt, col_opts = st.columns([3,1])
 with col_prompt:
     user_prompt = st.text_area("Enter your prompt …", height=200)
 
-# Update the UI section to show top edge and polysemy words
-
+# Add auto-constraint option
 with col_opts:
+    # Add toggle for auto-constraints
+    auto_constraints = st.checkbox("Auto-generate constraints", value=True, 
+                                  help="Automatically generate constraint phrases based on your prompt")
+    
     st.markdown("🔧 Constraint phrases (one per line)")
-    raw_constraints = st.text_area("Enter terms that define what your prompt should be about", value="context: prompt engineering\nformat: Text\nstyle: strict", height=150)
+    
+    # Process auto-constraints if enabled and no constraints provided
+    if auto_constraints and user_prompt.strip() and "auto_constraints" not in st.session_state:
+        with st.spinner("Generating constraints..."):
+            st.session_state.auto_constraints = generate_auto_constraints(user_prompt)
+    
+    # Determine what to show in the constraints box
+    initial_constraints = st.session_state.get("auto_constraints", []) if auto_constraints else []
+    if not initial_constraints:
+        initial_constraints = ["context: prompt engineering\nformat: Text\nstyle: strict"]
+    else:
+        initial_constraints = "\n".join(initial_constraints)
+    
+    raw_constraints = st.text_area("Enter terms that define what your prompt should be about", 
+                                 value=initial_constraints, 
+                                 height=150)
     constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
+    
+    # Clear auto constraints if disabled
+    if not auto_constraints and "auto_constraints" in st.session_state:
+        del st.session_state.auto_constraints
 
-# Modify the analysis button handler to include adaptive thresholds
 if st.button("▶ Analyze") and user_prompt.strip():
+    # Clear auto constraints to regenerate on next run
+    if "auto_constraints" in st.session_state:
+        del st.session_state.auto_constraints
+        
     token_ids = ENC.encode(user_prompt, disallowed_special=())
     tokens    = [ENC.decode([tid]) for tid in token_ids]
 
+    # Ensure there's at least one default constraint if list is empty
+    if not constraints:
+        constraints = ["context: general"]
+        
     c_vecs   = embed(constraints)
     edge_vals = edge_scores(tokens, c_vecs)
     poly_vals = poly_stress(tokens)
