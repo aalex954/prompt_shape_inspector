@@ -71,17 +71,28 @@ def poly_stress(tokens: List[str]):
     wn = _lazy_wordnet()
     out = []
     for t in tokens:
-        synsets = wn.synsets(t.strip())[:POLY_SENSES]
-        if len(synsets) < 2:
+        # Here's where the error happens - line 78
+        # Need to add null check before accessing definition attribute
+        senses = wn.synsets(t.lower().strip())[:POLY_SENSES]
+        
+        # Add null check and handle empty senses list
+        if not senses:
             out.append(0.0)
             continue
-        glosses = [s.definition() for s in synsets]
-        vecs    = embed(glosses)
-        if isinstance(vecs, np.ndarray):
-            vecs = [vecs]
-        centroid = np.mean(vecs, axis=0)
-        var      = float(np.mean([np.linalg.norm(v-centroid) for v in vecs]))
-        out.append(var)
+            
+        # Use safe access to definitions
+        glosses = [s.definition() if hasattr(s, 'definition') else "" for s in senses if s]
+        
+        if len(glosses) <= 1:
+            out.append(0.0)
+        else:
+            g_vecs = embed(glosses)
+            # Variance is cosine distances between all pairs
+            dists = []
+            for i in range(len(g_vecs)):
+                for j in range(i+1, len(g_vecs)):
+                    dists.append(1.0 - float(g_vecs[i] @ g_vecs[j]))
+            out.append(float(np.mean(dists)))
     return out
 
 # ---------------- Occlusion Drift ---------------------------
@@ -308,6 +319,10 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     # Use provided threshold or fall back to global value
     threshold = poly_threshold if poly_threshold is not None else POLY_STRESS_TAU
     
+    # Ensure word_text is not None
+    if word_text is None:
+        word_text = ""
+
     # Calculate average scores for the word
     avg_edge = sum(edge_vals[start_idx:end_idx]) / (end_idx - start_idx) if end_idx > start_idx else 0
     avg_poly = sum(poly_vals[start_idx:end_idx]) / (end_idx - start_idx) if end_idx > start_idx else 0
@@ -468,8 +483,13 @@ def generate_auto_constraints(prompt_text):
             max_tokens=100
         )
         
+        # Add null check before calling strip()
+        content = response.choices[0].message.content
+        if content is None:
+            return []
+            
         # Extract constraints from response
-        constraints = response.choices[0].message.content.strip().split('\n')
+        constraints = content.strip().split('\n')
         constraints = [c.strip() for c in constraints if c.strip()]
         
         return constraints
@@ -507,7 +527,12 @@ with col_opts:
     raw_constraints = st.text_area("Enter terms that define what your prompt should be about", 
                                  value=initial_constraints, 
                                  height=150)
-    constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
+    
+    # Add null check before calling splitlines()
+    if raw_constraints is not None:
+        constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
+    else:
+        constraints = []
     
     # Clear auto constraints if disabled
     if not auto_constraints and "auto_constraints" in st.session_state:
