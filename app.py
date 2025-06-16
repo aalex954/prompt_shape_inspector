@@ -464,7 +464,7 @@ with col_opts:
     constraints = [c.strip() for c in raw_constraints.splitlines() if c.strip()]
 
 # Modify the analysis button handler to include adaptive thresholds
-if st.button("▶ Analyse") and user_prompt.strip():
+if st.button("▶ Analyze") and user_prompt.strip():
     token_ids = ENC.encode(user_prompt, disallowed_special=())
     tokens    = [ENC.decode([tid]) for tid in token_ids]
 
@@ -869,4 +869,4 @@ if "tokens" in st.session_state:
             By applying engineering principles like sense-locking and edge reinforcement, you create more robust prompts with predictable outputs.
             """)
     else:
-        st.info("Enter a prompt and press **Analyse**.")
+        st.info("Enter a prompt and press **Analyze**.")
