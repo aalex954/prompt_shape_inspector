@@ -209,6 +209,10 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     """Return HTML span with heat colouring and tooltip."""
     title = f"edge: {edge:.2f} | σ: {poly:.2f}"
     
+    # Add explanation for red highlighting
+    if edge_on and poly_on and edge >= EDGE_TAU and poly >= POLY_STRESS_TAU:
+        title += " | ⚠️ RED FLAG: High edge + high polysemy"
+    
     # Calculate intensity for each highlight with proper gain application
     edge_intensity = 0
     poly_intensity = 0
@@ -227,8 +231,8 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     # Add red box outline for simultaneously highlighted tokens
     is_simultaneous = edge_on and poly_on and edge_intensity > 0 and poly_intensity > 0
     if is_simultaneous:
-        style += "border: 1px solid red; box-shadow: 0 0 2px red; "
-    
+        style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; "
+        
     # Apply highlighting based on active toggles
     if edge_on and poly_on:
         # When both are active, use a single color based on which value is higher
@@ -333,6 +337,14 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
         needs_sense_lock = any(p >= threshold for p in poly_vals[start_idx:end_idx])
     
     title = f"edge: {avg_edge:.2f} | σ: {avg_poly:.2f}"
+
+    # Add explanation for red highlighting
+    if (
+        show_edge and show_poly and
+        edge_threshold is not None and poly_threshold is not None and
+        avg_edge >= edge_threshold and avg_poly >= poly_threshold
+    ):
+        title += " | ⚠️ RED FLAG: High edge + high polysemy"
     
     # Calculate intensities
     edge_intensity = 0
@@ -347,10 +359,12 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     # Base style with padding
     style = "display:inline-block; margin:1px 2px; padding:1px 4px; position:relative; "
     
+    # Check if this is a red flag word (high constraint relevance AND high ambiguity)
+    is_red_flag = show_edge and show_poly and edge_intensity > 0 and poly_intensity > 0
+    
     # Add red box outline for simultaneously highlighted words
-    is_simultaneous = show_edge and show_poly and edge_intensity > 0 and poly_intensity > 0
-    if is_simultaneous:
-        style += "border: 1px solid red; box-shadow: 0 0 2px red; margin: 2px; "
+    if is_red_flag:
+        style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; margin: 2px; "
     
     # Apply highlighting based on active toggles
     if show_edge and show_poly:
@@ -370,15 +384,20 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
         poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
         style += f"background-color: {poly_color}; "
     
+    # Position both icons if needed
+    icon_html = ""
+    
+    # Add warning icon for red flag words (positioned differently from the lock)
+    if is_red_flag:
+        warning_style = "position:absolute; top:-15px; right:0; font-size:0.8em;"
+        icon_html += f"<span style='{warning_style}'>⚠️</span>"
+    
     # Add lock icon for high polysemy words
     if show_sense_lock and needs_sense_lock:
-        lock_style = "position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:0.8em;"
-        return f"""<span title='{title}' style='{style}'>
-                    <span style='{lock_style}'>🔒</span>
-                    {html.escape(word_text)}
-                </span>"""
-    else:
-        return f"<span title='{title}' style='{style}'>{html.escape(word_text)}</span>"
+        lock_style = "position:absolute; top:-15px; left:0; font-size:0.8em;"
+        icon_html += f"<span style='{lock_style}'>🔒</span>"
+    
+    return f"<span title='{title}' style='{style}'>{icon_html}{html.escape(word_text)}</span>"
 
 def copy_to_clipboard(text: str):
     try:
@@ -597,6 +616,7 @@ if "tokens" in st.session_state:
     orig_poly_vals = poly_vals.copy()
     
     # MOVE THRESHOLD CONTROLS TO THE TOP
+    st.sidebar.title("Settings")
     st.sidebar.markdown("## Threshold Controls")
     
     # Add option to use adaptive thresholds
