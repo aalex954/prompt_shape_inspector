@@ -226,10 +226,8 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     # Base style with padding
     style = "display:inline-block; margin:1px; padding:1px 2px; position:relative; "
     
-    # Add red box outline for simultaneously highlighted tokens
-    is_red_flag = edge_on and poly_on and edge_intensity > 0 and poly_intensity > 0
-    if is_red_flag:
-        style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; "
+    # Add orange background for red flag tokens (high edge + high poly)
+    is_red_flag = edge_on and poly_on and edge >= EDGE_TAU and poly >= POLY_STRESS_TAU
     
     # Check if we should display this token in red flag only mode
     display_mode = st.session_state.get("display_mode", "Show all")
@@ -237,9 +235,15 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
         # In red flag only mode, make non-red-flag tokens transparent
         style += "color: #cccccc; background-color: transparent; border: none; box-shadow: none; "
     else:
-        # Apply highlighting based on active toggles
-        if edge_on and poly_on:
-            # When both are active, use a single color based on which value is higher
+        # Apply highlighting based on active toggles and whether it's a red flag
+        if is_red_flag:
+            # Use orange highlighting for red flag words
+            orange_intensity = min(90, max(50, int((edge_intensity + poly_intensity)/2)))
+            orange_color = f"rgba(255,153,0,{orange_intensity/100:.2f})"
+            style += f"background-color: {orange_color}; "
+            style += "border: 1px solid #ff6600; box-shadow: 0 0 3px #ff9900; "
+        elif edge_on and poly_on:
+            # When both are active but not a red flag, use a single color based on which value is higher
             if edge > poly:
                 edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
                 style += f"background-color: {edge_color}; "
@@ -269,6 +273,8 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
 def create_word_groups(tokens):
     """Group tokens into words by whitespace boundaries.
     Returns a list of (start_idx, end_idx, word, is_whitespace) tuples."""
+
+
     word_groups = []
     current_word = []
     current_indices = []
@@ -361,12 +367,6 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     # Base style with padding
     style = "display:inline-block; margin:1px 2px; padding:1px 4px; position:relative; "
     
-    # Check if this is a red flag word (high constraint relevance AND high ambiguity)
-    
-    # Add red box outline for simultaneously highlighted words
-    if is_red_flag:
-        style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; margin: 2px; "
-    
     # Check if we should display this word in red flag only mode
     display_mode = st.session_state.get("display_mode", "Show all")
     if display_mode == "Red flag tokens only" and not is_red_flag:
@@ -374,8 +374,14 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
         style += "color: #cccccc; background-color: transparent; border: none; box-shadow: none; "
     else:
         # Apply highlighting based on active toggles
-        if show_edge and show_poly:
-            # When both are active, use a single color based on which value is higher
+        if is_red_flag:
+            # Use orange highlighting for red flag words
+            orange_intensity = min(90, max(50, int((edge_intensity + poly_intensity)/2)))
+            orange_color = f"rgba(255,153,0,{orange_intensity/100:.2f})"
+            style += f"background-color: {orange_color}; "
+            style += "border: 1px solid #ff6600; box-shadow: 0 0 3px #ff9900; "
+        elif show_edge and show_poly:
+            # When both are active but not a red flag, use a single color based on which value is higher
             if avg_edge > avg_poly:
                 edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
                 style += f"background-color: {edge_color}; "
@@ -493,6 +499,8 @@ def compute_adaptive_thresholds(edge_vals, poly_vals):
 
 def generate_auto_constraints(prompt_text):
     """Generate constraint phrases based on the input prompt using LLM."""
+
+
     if not prompt_text or len(prompt_text.strip()) < 10:
         return []
         
