@@ -502,7 +502,17 @@ def generate_auto_constraints(prompt_text):
 col_prompt, col_opts = st.columns([3,1])
 
 with col_prompt:
-    user_prompt = st.text_area("Enter your prompt …", height=200)
+    user_prompt = st.text_area("Enter your prompt …", height=300, value='''Write a very, quite, rather extremely concise yet somewhat exhaustive 300-word executive brief that:
+• explains how a retail bank can port its legacy Python web gateway to Rust
+• secures all open ports in both the cloud firewall and the container runtime
+• compares Python’s asyncio with Rust’s async lead-time under low-latency trading loads
+• references the bank’s commitment to green shipping of physical credit cards via carbon-neutral ports
+• is suitable for the Board, DevOps, and ESG officers at the same time
+• must finish with a single-sentence call-to-action
+
+(When “port” means network-socket, use the sense {software-port}; when it means logistics-hub, use {harbor-port}.)
+
+Return the answer in GitHub-flavoured Markdown. Bullet points ≤ 15 words. Avoid synonyms for “zero-trust”. End of output only after the CTA. BEGIN.''')
 
 # Add auto-constraint option
 with col_opts:
@@ -524,8 +534,13 @@ with col_opts:
         initial_constraints = "\n".join(initial_constraints)
     
     raw_constraints = st.text_area("🔧 Constraint phrases (one per line)", 
-                                 value=initial_constraints, 
-                                 height=150)
+                                 height=250,
+                                 value='''topic: porting legacy Python web gateway to Rust
+constraint: 300-word limit for the executive brief
+topic: securing open ports in cloud firewall and container runtime
+topic: comparison of Python’s asyncio with Rust’s async under low-latency trading loads
+topic: commitment to green shipping of physical credit cards via carbon-neutral ports
+constraint: suitability for Board, DevOps, and ESG officers''')
     
     # Add null check before calling splitlines()
     if raw_constraints is not None:
@@ -768,7 +783,7 @@ if "tokens" in st.session_state:
             st.markdown("### Heat‑map")
             
             # Add toggle for word grouping
-            group_words = st.checkbox("Group tokens into words", value=False, 
+            group_words = st.checkbox("Group tokens into words", value=True, 
                                      help="Display heat map by words rather than individual tokens",
                                      key="group_words")
             
@@ -818,12 +833,50 @@ if "tokens" in st.session_state:
         with col2:
             st.markdown("### 🎯 Top Words Summary")
             
-            # Create tabs for edge and poly words
-            tab_edges, tab_poly = st.tabs(["Top Edge Words", "Top Polysemy Words"])
+            # Create tabs for edge and poly words - corrected to include all three tabs
+            tab_red_flags, tab_edges, tab_poly = st.tabs(["Top Red Flags", "Top Edge Words", "Top Polysemy Words"])
             
+            # RED FLAGS TAB (NEW)
+            with tab_red_flags:
+                st.markdown(f"#### Top red flags (high edge + high polysemy)")
+                
+                # Create tuples of (token, edge_score, poly_score, combined_score)
+                # Combined score is the product of edge and poly scores to prioritize words that score high on both
+                combined_pairs = [(t, e, p, e * p) for t, e, p in zip(tokens, orig_edge_vals, orig_poly_vals)]
+                
+                # Filter out control characters and only include words with high scores on both dimensions
+                red_flags = [(t, e, p, c) for t, e, p, c in combined_pairs 
+                            if t.strip() and any(c.isalnum() for c in t) 
+                            and e >= edge_threshold and p >= poly_threshold]
+                
+                # Sort by combined score (highest first)
+                red_flags.sort(key=lambda x: x[3], reverse=True)
+                
+                # Take top 10 or fewer if not enough
+                top_red_flags = red_flags[:10]
+                
+                # Display as a table
+                if top_red_flags:
+                    st.markdown("**Words with both high constraint relevance AND high ambiguity:**")
+                    for i, (token, edge_score, poly_score, combined_score) in enumerate(top_red_flags):
+                        # Special formatting for red flag tokens
+                        token_html = f"<span style='color:red; font-weight:bold; border:1px solid red; padding:1px 3px'>{html.escape(token)} ⚠️</span>"
+                        
+                        st.markdown(f"{i+1}. {token_html} (edge:{edge_score:.2f}, σ:{poly_score:.2f})", unsafe_allow_html=True)
+                    
+                    st.markdown("""
+                    ⚠️ **Red flag words** need special attention as they are both:
+                    - Critical to your prompt's meaning (high edge score)
+                    - Highly ambiguous with multiple meanings (high polysemy)
+                    
+                    These words are the most likely to cause semantic drift or misinterpretation.
+                    """)
+                else:
+                    st.info("No red flag words found (no words have both high edge score and high polysemy).")
+    
             # EDGE WORDS TAB
             with tab_edges:
-                st.markdown(f"#### Top edge words (τ={EDGE_TAU:.2f})")
+                st.markdown(f"#### Top edge words (τ={edge_threshold:.2f})")
                 
                 # Create pairs of (token, edge_score) and sort by score
                 edge_pairs = [(t, e) for t, e in zip(tokens, orig_edge_vals)]
@@ -840,7 +893,7 @@ if "tokens" in st.session_state:
                     st.markdown("**Words with highest constraint relevance:**")
                     for i, (token, score) in enumerate(top_edges):
                         # Color formatting based on threshold
-                        if score >= EDGE_TAU:
+                        if score >= edge_threshold:
                             token_html = f"<span style='color:blue; font-weight:bold'>{html.escape(token)}</span>"
                         else:
                             token_html = html.escape(token)
@@ -848,10 +901,10 @@ if "tokens" in st.session_state:
                         st.markdown(f"{i+1}. {token_html} ({score:.2f})", unsafe_allow_html=True)
                 else:
                     st.info("No edge words found.")
-            
+
             # POLYSEMY WORDS TAB
             with tab_poly:
-                st.markdown(f"#### Top polysemy words (σ={POLY_STRESS_TAU:.2f})")
+                st.markdown(f"#### Top polysemy words (σ={poly_threshold:.2f})")
                 
                 # Create pairs of (token, poly_score) and sort by score
                 poly_pairs = [(t, p) for t, p in zip(tokens, orig_poly_vals)]
@@ -868,7 +921,7 @@ if "tokens" in st.session_state:
                     st.markdown("**Words with highest ambiguity:**")
                     for i, (token, score) in enumerate(top_poly):
                         # Color formatting based on threshold
-                        if score >= POLY_STRESS_TAU:
+                        if score >= poly_threshold:
                             token_html = f"<span style='color:green; font-weight:bold'>{html.escape(token)} 🔒</span>"
                         else:
                             token_html = html.escape(token)
