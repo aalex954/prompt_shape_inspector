@@ -743,6 +743,15 @@ if "tokens" in st.session_state:
                                    key="normalize",
                                    help="Adjusts the highlighting to emphasize the relative differences between tokens")
 
+    # Add new toggle for prioritizing red flags in normalization
+    highlight_red_flags = st.sidebar.checkbox(
+        "Emphasize red flags during normalization", 
+        value=False, 
+        key="highlight_red_flags",
+        help="Boosts highlighting intensity for words that have both high edge and high polysemy scores",
+        disabled=not normalize
+    )
+
     # Apply normalization if requested - FIXED implementation
     edge_vals_display = edge_vals.copy()  # Create display copies that will be modified
     poly_vals_display = poly_vals.copy()
@@ -758,7 +767,29 @@ if "tokens" in st.session_state:
             if not masked:  # If below threshold
                 poly_vals_display[i] = 0.0  # Zero out the display value
     
+    # Create combined scores for red flag emphasis
+    combined_scores = []
+    for e, p in zip(edge_vals_display, poly_vals_display):
+        # Calculate a combined score that emphasizes tokens with both high edge and poly scores
+        if e > 0 and p > 0:
+            combined_scores.append(e * p)  # Multiply scores for high contrast
+        else:
+            combined_scores.append(0.0)
+    
     if normalize:
+        if highlight_red_flags and any(combined_scores):
+            # When red flag emphasis is enabled, use combined scores to boost both edge and poly values
+            max_combined = max(combined_scores) if any(combined_scores) else 1.0
+            
+            # Apply boosts to both edge and poly values for red flag words
+            for i, combined_score in enumerate(combined_scores):
+                if combined_score > 0:
+                    # Calculate boost factor (1.0-2.0) based on the combined score
+                    boost_factor = 1.0 + (combined_score / max_combined)
+                    edge_vals_display[i] *= boost_factor
+                    poly_vals_display[i] *= boost_factor
+        
+        # Now apply regular normalization
         if show_edge and any(edge_vals_display):
             # Scale edge values to maximize differences
             max_edge = max(edge_vals_display)
