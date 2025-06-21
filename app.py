@@ -205,7 +205,7 @@ def enhanced_contractor(tokens, edge_vals, poly_vals, edge_mask, poly_mask):
 
 # ---------------- UI Helpers --------------------------------
 
-def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0, normalize=False, show_sense_lock=False):
+def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0, normalize=False, show_sense_lock=False, show_red_flags=True):
     """Return HTML span with heat colouring and tooltip."""
     title = f"edge: {edge:.2f} | σ: {poly:.2f}"
     
@@ -218,30 +218,26 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     poly_intensity = 0
     
     if edge_on:
-        # Apply gain and clip to 0-100 range
         edge_intensity = min(100, int(np.clip(edge * edge_gain/0.8, 0, 1) * 100))
     
     if poly_on:
-        # Apply gain and clip to 0-100 range
-        poly_intensity = min(100, int(np.clip(poly * poly_gain/0.5, 0, 1) * 100))
+        poly_intensity = min(100, int(np.clip(poly * poly_gain/0.8, 0, 1) * 100))
     
     # Base style with padding
     style = "display:inline-block; margin:1px; padding:1px 2px; position:relative; "
     
     # Add red box outline for simultaneously highlighted tokens
-    is_simultaneous = edge_on and poly_on and edge_intensity > 0 and poly_intensity > 0
-    if is_simultaneous:
+    is_red_flag = edge_on and poly_on and edge_intensity > 0 and poly_intensity > 0
+    if is_red_flag:
         style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; "
         
     # Apply highlighting based on active toggles
     if edge_on and poly_on:
         # When both are active, use a single color based on which value is higher
         if edge > poly:
-            # Edge is more important for this token, use blue
             edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
             style += f"background-color: {edge_color}; "
         else:
-            # Polysemy is more important, use green
             poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
             style += f"background-color: {poly_color}; "
     elif edge_on:
@@ -251,16 +247,18 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
         poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
         style += f"background-color: {poly_color}; "
     
-    # Add lock icon for high polysemy words
-    # (Note: we use the original poly value, not the display/normalized one)
-    if show_sense_lock and poly >= sense_lock_threshold:
-        lock_style = "position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:0.8em;"
-        return f"""<span title='{title}' style='{style}'>
-                    <span style='{lock_style}'>🔒</span>
-                    {html.escape(tok)}
-                </span>"""
-    else:
-        return f"<span title='{title}' style='{style}'>{html.escape(tok)}</span>"
+    # Add warning icon for red flag words (positioned at top-right)
+    icon_html = ""
+    if is_red_flag and show_red_flags:
+        warning_style = "position:absolute; top:-15px; right:0; font-size:0.8em;"
+        icon_html = f"<span style='{warning_style}'>⚠️</span>"
+    
+    # Add lock icon for high polysemy words (positioned at top-left)
+    if show_sense_lock and poly >= POLY_STRESS_TAU:
+        lock_style = "position:absolute; top:-15px; left:0; font-size:0.8em;"
+        icon_html += f"<span style='{lock_style}'>🔒</span>"
+    
+    return f"<span title='{title}' style='{style}'>{icon_html}{html.escape(tok)}</span>"
 
 def create_word_groups(tokens):
     """Group tokens into words by whitespace boundaries.
@@ -318,7 +316,7 @@ def create_word_groups(tokens):
     
     return word_groups
 
-def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_edge, show_poly, edge_gain, poly_gain, show_sense_lock, poly_threshold=None):
+def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_edge, show_poly, edge_gain, poly_gain, show_sense_lock, poly_threshold=None, show_red_flags=True):
     """Style an entire word group using average scores from its tokens."""
     # Use provided threshold or fall back to global value
     threshold = poly_threshold if poly_threshold is not None else POLY_STRESS_TAU
@@ -370,11 +368,9 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     if show_edge and show_poly:
         # When both are active, use a single color based on which value is higher
         if avg_edge > avg_poly:
-            # Edge is more important for this word, use blue
             edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
             style += f"background-color: {edge_color}; "
         else:
-            # Polysemy is more important, use green
             poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
             style += f"background-color: {poly_color}; "
     elif show_edge:
@@ -387,12 +383,12 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     # Position both icons if needed
     icon_html = ""
     
-    # Add warning icon for red flag words (positioned differently from the lock)
-    if is_red_flag:
+    # Add warning icon for red flag words (positioned at top-right)
+    if is_red_flag and show_red_flags:
         warning_style = "position:absolute; top:-15px; right:0; font-size:0.8em;"
         icon_html += f"<span style='{warning_style}'>⚠️</span>"
     
-    # Add lock icon for high polysemy words
+    # Add lock icon for high polysemy words (positioned at top-left)
     if show_sense_lock and needs_sense_lock:
         lock_style = "position:absolute; top:-15px; left:0; font-size:0.8em;"
         icon_html += f"<span style='{lock_style}'>🔒</span>"
@@ -703,8 +699,7 @@ if "tokens" in st.session_state:
                                help="Highlights tokens that define the semantic boundaries of your prompt")
     with col_edge_gain:
         edge_gain = st.slider("Gain", 
-                            min_value=1.0,  # Changed from 0.0 to 1.0
-                            max_value=100.0, 
+                            min_value=1.0,                            max_value=100.0, 
                             value=41.0, 
                             step=1.0, 
                             disabled=not show_edge, 
@@ -722,8 +717,7 @@ if "tokens" in st.session_state:
                                help="Highlights tokens with high semantic ambiguity")
     with col_poly_gain:
         poly_gain = st.slider("Gain", 
-                             min_value=1.0,  # Changed from 0.0 to 1.0
-                             max_value=100.0, 
+                             min_value=1.0,                             max_value=100.0, 
                              value=16.0, 
                              step=1.0, 
                              disabled=not show_poly, 
@@ -731,6 +725,17 @@ if "tokens" in st.session_state:
                              help="Increases highlighting intensity for better visibility of polysemous tokens")
         # Convert percentage to decimal for calculations
         poly_gain = poly_gain / 30.0
+        
+    # Add new toggle for red flag icons without problematic callback
+    show_red_flags = st.sidebar.checkbox(
+        "Show red flag icons (⚠️)", 
+        value=True, 
+        key="show_red_flags",
+        help="Shows warning icons over words with both high edge and high polysemy scores"
+    )
+
+    # Add a small spacer after the toggle section
+    st.sidebar.write("")
 
     # Normalize toggle with unique key
     normalize = st.sidebar.checkbox("Normalize (maximize differences)", 
@@ -807,33 +812,47 @@ if "tokens" in st.session_state:
                                      help="Display heat map by words rather than individual tokens",
                                      key="group_words")
             
-            if group_words:
-                # Create word groups
-                word_groups = create_word_groups(tokens)
-                
-                # Style each word group as a unit
-                html_words = []
-                for start_idx, end_idx, word, is_whitespace in word_groups:
-                    if is_whitespace:
-                        # Just add whitespace without styling
-                        html_words.append(html.escape(word))
-                    else:
-                        # Style the word based on average scores
-                        styled_word = style_word_group(word, 
-                              edge_vals_display, poly_vals_display, 
-                              start_idx, end_idx,
-                              show_edge, show_poly, 
-                              edge_gain, poly_gain, 
-                              show_sense_lock,
-                              sense_lock_threshold)  # Use the separate threshold
-                        html_words.append(styled_word)
+            # Get the current state of the red flag toggle
+            show_red_flags = st.session_state.get("show_red_flags", True)
 
-                st.markdown("<div style='font-family:monospace; line-height:2em'>"+"".join(html_words)+"</div>", unsafe_allow_html=True)
+            if not group_words:
+                html_parts = []
+                for i, (tok, e, p) in enumerate(zip(tokens, edge_vals_display, poly_vals_display)):
+                    html_parts.append(
+                        style_token(
+                            tok, e, p, 
+                            show_edge, show_poly, 
+                            edge_gain, poly_gain, 
+                            normalize, 
+                            show_sense_lock,
+                            show_red_flags  # Pass the toggle state here
+                        )
+                    )
+                st.markdown("".join(html_parts), unsafe_allow_html=True)
             else:
-                # Original token-by-token display
-                html_tokens = [style_token(t, ed, pd, show_edge, show_poly, edge_gain, poly_gain, False, show_sense_lock) 
-                              for t, ed, pd in zip(tokens, edge_vals_display, poly_vals_display)]
-                st.markdown("<div style='font-family:monospace; line-height:2em'>"+"".join(html_tokens)+"</div>", unsafe_allow_html=True)
+                word_groups = create_word_groups(tokens)
+                html_parts = []
+                for start_idx, end_idx, word_text, is_whitespace in word_groups:
+                    if is_whitespace:
+                        html_parts.append(html.escape(word_text))
+                    else:
+                        html_parts.append(
+                            style_word_group(
+                                word_text, 
+                                edge_vals_display, 
+                                poly_vals_display,
+                                start_idx, 
+                                end_idx, 
+                                show_edge, 
+                                show_poly, 
+                                edge_gain, 
+                                poly_gain, 
+                                show_sense_lock,
+                                poly_threshold,
+                                show_red_flags  # Pass the toggle state here
+                            )
+                        )
+                st.markdown("".join(html_parts), unsafe_allow_html=True)
 
             # Optimized prompt output
             st.markdown("### 🔗 Optimized prompt (copy‑ready)")
