@@ -746,7 +746,7 @@ if "tokens" in st.session_state:
     # Add new toggle for prioritizing red flags in normalization
     highlight_red_flags = st.sidebar.checkbox(
         "Emphasize red flags during normalization", 
-        value=False, 
+        value=True, 
         key="highlight_red_flags",
         help="Boosts highlighting intensity for words that have both high edge and high polysemy scores",
         disabled=not normalize
