@@ -10,12 +10,14 @@ import streamlit as st
 import tiktoken, pyperclip
 from openai import OpenAI
 from dotenv import load_dotenv; load_dotenv()
+import datetime
 
 # Set page title and configuration first
 st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
 
 # Add a title at the top of the page
 st.title("LLM Prompt Shape Inspector")
+st.markdown("This tool analyzes your prompt to a language model and provides insights into the 'shape' of the prompt/idea, including key topics, constraints, and potential ambiguities.")
 
 # ------------------ CONFIG ----------------------------------
 EMBED_MODEL         = "text-embedding-3-small"   # cost-effective, solid recall
@@ -716,6 +718,11 @@ if "tokens" in st.session_state:
         help="Filter which tokens to highlight in the visualization"
     )
     
+    # Initialize visibility flags with safe defaults
+    show_edge = True
+    show_poly = True
+    show_red_flags = True
+
     # Set visibility flags based on display mode
     if display_mode == "Show all":
         show_edge = True
