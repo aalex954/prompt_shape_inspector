@@ -230,22 +230,28 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     is_red_flag = edge_on and poly_on and edge_intensity > 0 and poly_intensity > 0
     if is_red_flag:
         style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; "
-        
-    # Apply highlighting based on active toggles
-    if edge_on and poly_on:
-        # When both are active, use a single color based on which value is higher
-        if edge > poly:
+    
+    # Check if we should display this token in red flag only mode
+    display_mode = st.session_state.get("display_mode", "Show all")
+    if display_mode == "Red flag tokens only" and not is_red_flag:
+        # In red flag only mode, make non-red-flag tokens transparent
+        style += "color: #cccccc; background-color: transparent; border: none; box-shadow: none; "
+    else:
+        # Apply highlighting based on active toggles
+        if edge_on and poly_on:
+            # When both are active, use a single color based on which value is higher
+            if edge > poly:
+                edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
+                style += f"background-color: {edge_color}; "
+            else:
+                poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
+                style += f"background-color: {poly_color}; "
+        elif edge_on:
             edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
             style += f"background-color: {edge_color}; "
-        else:
+        elif poly_on:
             poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
             style += f"background-color: {poly_color}; "
-    elif edge_on:
-        edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
-        style += f"background-color: {edge_color}; "
-    elif poly_on:
-        poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
-        style += f"background-color: {poly_color}; "
     
     # Add warning icon for red flag words (positioned at top-right)
     icon_html = ""
@@ -320,6 +326,7 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     """Style an entire word group using average scores from its tokens."""
     # Use provided threshold or fall back to global value
     threshold = poly_threshold if poly_threshold is not None else POLY_STRESS_TAU
+    edge_threshold = st.session_state.get("edge_threshold", EDGE_TAU)
     
     # Ensure word_text is not None
     if word_text is None:
@@ -337,11 +344,8 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     title = f"edge: {avg_edge:.2f} | σ: {avg_poly:.2f}"
 
     # Add explanation for red highlighting
-    if (
-        show_edge and show_poly and
-        edge_threshold is not None and poly_threshold is not None and
-        avg_edge >= edge_threshold and avg_poly >= poly_threshold
-    ):
+    is_red_flag = (show_edge and show_poly and avg_edge >= edge_threshold and avg_poly >= threshold)
+    if is_red_flag:
         title += " | ⚠️ RED FLAG: High edge + high polysemy"
     
     # Calculate intensities
@@ -358,27 +362,32 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     style = "display:inline-block; margin:1px 2px; padding:1px 4px; position:relative; "
     
     # Check if this is a red flag word (high constraint relevance AND high ambiguity)
-    is_red_flag = show_edge and show_poly and edge_intensity > 0 and poly_intensity > 0
     
     # Add red box outline for simultaneously highlighted words
     if is_red_flag:
         style += "border: 1px solid #ff3333; box-shadow: 0 0 3px #ff0000; margin: 2px; "
     
-    # Apply highlighting based on active toggles
-    if show_edge and show_poly:
-        # When both are active, use a single color based on which value is higher
-        if avg_edge > avg_poly:
+    # Check if we should display this word in red flag only mode
+    display_mode = st.session_state.get("display_mode", "Show all")
+    if display_mode == "Red flag tokens only" and not is_red_flag:
+        # In red flag only mode, make non-red-flag words transparent
+        style += "color: #cccccc; background-color: transparent; border: none; box-shadow: none; "
+    else:
+        # Apply highlighting based on active toggles
+        if show_edge and show_poly:
+            # When both are active, use a single color based on which value is higher
+            if avg_edge > avg_poly:
+                edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
+                style += f"background-color: {edge_color}; "
+            else:
+                poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
+                style += f"background-color: {poly_color}; "
+        elif show_edge:
             edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
             style += f"background-color: {edge_color}; "
-        else:
+        elif show_poly:
             poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
             style += f"background-color: {poly_color}; "
-    elif show_edge:
-        edge_color = f"rgba(25,100,230,{edge_intensity/100:.2f})"
-        style += f"background-color: {edge_color}; "
-    elif show_poly:
-        poly_color = f"rgba(50,200,100,{poly_intensity/100:.2f})"
-        style += f"background-color: {poly_color}; "
     
     # Position both icons if needed
     icon_html = ""
@@ -690,49 +699,96 @@ if "tokens" in st.session_state:
     # NOW continue with the rest of the sidebar controls
     st.sidebar.markdown("## Heat‑map toggles")
 
+    # Add display mode selection
+    display_mode = st.sidebar.radio(
+        "Display mode",
+        options=["Show all", "Edge tokens only", "Polysemy tokens only", "Red flag tokens only"],
+        index=0,
+        key="display_mode",
+        help="Filter which tokens to highlight in the visualization"
+    )
+    
+    # Set visibility flags based on display mode
+    if display_mode == "Show all":
+        show_edge = True
+        show_poly = True
+        show_red_flags = True
+    elif display_mode == "Edge tokens only":
+        show_edge = True
+        show_poly = False
+        show_red_flags = False
+    elif display_mode == "Polysemy tokens only":
+        show_edge = False
+        show_poly = True
+        show_red_flags = False
+    elif display_mode == "Red flag tokens only":
+        show_edge = True
+        show_poly = True
+        show_red_flags = True
+        # We'll use this mode to only display tokens that are both edge and poly
+
+    # Initialize gain values with defaults
+    edge_gain = 41.0 / 30.0  # Default edge gain
+    poly_gain = 16.0 / 30.0  # Default poly gain
+
     # Edge finder with gain control
     col_edge, col_edge_gain = st.sidebar.columns([2, 3])
     with col_edge:
-        show_edge = st.checkbox("Edge‑Finder", 
-                               value=True, 
-                               key="show_edge",
-                               help="Highlights tokens that define the semantic boundaries of your prompt")
+        if display_mode != "Red flag tokens only" and display_mode != "Polysemy tokens only":
+            show_edge = st.checkbox("Edge‑Finder", 
+                                value=show_edge, 
+                                key="show_edge",
+                                help="Highlights tokens that define the semantic boundaries of your prompt")
+        else:
+            # Just display the state without allowing changes
+            st.markdown(f"**Edge‑Finder:** {'On' if show_edge else 'Off'}")
+    
     with col_edge_gain:
-        edge_gain = st.slider("Gain", 
-                            min_value=1.0,                            max_value=100.0, 
-                            value=41.0, 
-                            step=1.0, 
-                            disabled=not show_edge, 
-                            key="edge_gain",
-                            help="Increases highlighting intensity for better visibility of edge tokens")
-        # Convert percentage to decimal for calculations
-        edge_gain = edge_gain / 30.0
+        if show_edge:
+            edge_gain_val = st.slider("Gain", 
+                                min_value=1.0, 
+                                max_value=100.0, 
+                                value=41.0, 
+                                step=1.0, 
+                                key="edge_gain",
+                                help="Increases highlighting intensity for better visibility of edge tokens")
+            # Convert percentage to decimal for calculations
+            edge_gain = edge_gain_val / 30.0
 
     # Polysemy with gain control
     col_poly, col_poly_gain = st.sidebar.columns([2, 3])
     with col_poly:
-        show_poly = st.checkbox("Polysemy stress", 
-                               value=True, 
-                               key="show_poly",
-                               help="Highlights tokens with high semantic ambiguity")
+        if display_mode != "Red flag tokens only" and display_mode != "Edge tokens only":
+            show_poly = st.checkbox("Polysemy stress", 
+                                value=show_poly, 
+                                key="show_poly",
+                                help="Highlights tokens with high semantic ambiguity")
+        else:
+            # Just display the state without allowing changes
+            st.markdown(f"**Polysemy stress:** {'On' if show_poly else 'Off'}")
+    
     with col_poly_gain:
-        poly_gain = st.slider("Gain", 
-                             min_value=1.0,                             max_value=100.0, 
-                             value=16.0, 
-                             step=1.0, 
-                             disabled=not show_poly, 
-                             key="poly_gain",
-                             help="Increases highlighting intensity for better visibility of polysemous tokens")
-        # Convert percentage to decimal for calculations
-        poly_gain = poly_gain / 30.0
+        if show_poly:
+            poly_gain_val = st.slider("Gain", 
+                                min_value=1.0, 
+                                max_value=100.0, 
+                                value=16.0, 
+                                step=1.0, 
+                                key="poly_gain",
+                                help="Increases highlighting intensity for better visibility of polysemous tokens")
+            # Convert percentage to decimal for calculations
+            poly_gain = poly_gain_val / 30.0
         
-    # Add new toggle for red flag icons without problematic callback
-    show_red_flags = st.sidebar.checkbox(
-        "Show red flag icons (⚠️)", 
-        value=True, 
-        key="show_red_flags",
-        help="Shows warning icons over words with both high edge and high polysemy scores"
-    )
+    # Add red flag icon toggle only if not in red flag only mode
+    if display_mode != "Red flag tokens only":
+        show_red_flags = st.sidebar.checkbox(
+            "Show red flag icons (⚠️)", 
+            value=show_red_flags, 
+            key="show_red_flags",
+            help="Shows warning icons over words with both high edge and high polysemy scores"
+        )
+    else:
+        st.sidebar.markdown("**Red flag icons:** On")
 
     # Add a small spacer after the toggle section
     st.sidebar.write("")
