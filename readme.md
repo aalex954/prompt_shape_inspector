@@ -2,7 +2,7 @@
 
 [Prompt Shape Inspector Demo](https://promptshapeinspector.streamlit.app/)
 
-![image](https://github.com/user-attachments/assets/08895910-6e89-4098-b4aa-745f43bcf9bb)
+![image](https://github.com/user-attachments/assets/ad988045-d64c-420b-8b65-f10f10af196b)
 
 ![image](https://github.com/user-attachments/assets/007b4192-195f-43b8-a7d0-9ab6dd735c23)
 
