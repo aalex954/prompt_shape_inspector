@@ -12,13 +12,6 @@ from openai import OpenAI
 from dotenv import load_dotenv; load_dotenv()
 import datetime
 
-# Set page title and configuration first
-st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
-
-# Add a title at the top of the page
-st.title("LLM Prompt Shape Inspector")
-st.markdown("This tool analyzes your prompt to a language model and provides insights into the 'shape' of the prompt/idea, including key topics, constraints, and potential ambiguities.")
-
 # ------------------ CONFIG ----------------------------------
 EMBED_MODEL         = "text-embedding-3-small"   # cost-effective, solid recall
 CHAT_MODEL          = "gpt-4o-mini"              # fast sense-lock suggestions
@@ -276,7 +269,6 @@ def create_word_groups(tokens):
     """Group tokens into words by whitespace boundaries.
     Returns a list of (start_idx, end_idx, word, is_whitespace) tuples."""
 
-
     word_groups = []
     current_word = []
     current_indices = []
@@ -532,6 +524,13 @@ def generate_auto_constraints(prompt_text):
         return []
 
 # --------------------------- Streamlit GUI ------------------
+
+# Set page title and configuration first
+st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
+
+# Add a title at the top of the page
+st.title("LLM Prompt Shape Inspector")
+st.markdown("This tool analyzes your prompt to a language model and provides insights into the 'shape' of the prompt/idea, including key topics, constraints, and potential ambiguities.")
 
 col_prompt, col_opts = st.columns([3,1])
 
@@ -823,8 +822,7 @@ if "tokens" in st.session_state:
         disabled=not normalize
     )
 
-    # Apply normalization if requested - FIXED implementation
-    edge_vals_display = edge_vals.copy()  # Create display copies that will be modified
+    edge_vals_display = edge_vals.copy()
     poly_vals_display = poly_vals.copy()
     
     # Apply threshold masking to display values - this will zero out values below threshold
