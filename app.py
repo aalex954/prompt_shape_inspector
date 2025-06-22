@@ -261,7 +261,7 @@ def style_token(tok, edge, poly, edge_on, poly_on, edge_gain=1.0, poly_gain=1.0,
     # Add lock icon for high polysemy words (positioned at top-left)
     if show_sense_lock and poly >= POLY_STRESS_TAU:
         lock_style = "position:absolute; top:-15px; left:0; font-size:0.8em;"
-        icon_html += f"<span style='{lock_style}'>🔒</span>"
+        icon_html += f"<span style='{lock_style}'>:lock:</span>"
     
     return f"<span title='{title}' style='{style}'>{icon_html}{html.escape(tok)}</span>"
 
@@ -400,7 +400,7 @@ def style_word_group(word_text, edge_vals, poly_vals, start_idx, end_idx, show_e
     # Add lock icon for high polysemy words (positioned at top-left)
     if show_sense_lock and needs_sense_lock:
         lock_style = "position:absolute; top:-15px; left:0; font-size:0.8em;"
-        icon_html += f"<span style='{lock_style}'>🔒</span>"
+        icon_html += f"<span style='{lock_style}'>:lock:</span>"
     
     return f"<span title='{title}' style='{style}'>{icon_html}{html.escape(word_text)}</span>"
 
@@ -526,10 +526,10 @@ def generate_auto_constraints(prompt_text):
 # --------------------------- Streamlit GUI ------------------
 
 # Set page title and configuration first
-st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="🌐", layout="wide")
+st.set_page_config(page_title="LLM Prompt Shape Inspector", page_icon="💥", layout="wide")
 
 # Add a title at the top of the page
-st.title("LLM Prompt Shape Inspector")
+st.title("💥LLM Prompt Shape Inspector💥")
 st.markdown("This tool analyzes your prompt to a language model and provides insights into the 'shape' of the prompt/idea, including key topics, constraints, and potential ambiguities.")
 
 col_prompt, col_opts = st.columns([3,1])
@@ -883,7 +883,7 @@ if "tokens" in st.session_state:
     if show_sense_lock:
         with st.sidebar.expander("Sense-locking Legend", expanded=False):
             st.markdown(f"""
-            🔒 - High polysemy word (σ ≥ {sense_lock_threshold:.2f})
+            :lock: - High polysemy word (σ ≥ {sense_lock_threshold:.2f})
             
             **Recommendation:** Follow these words with:
             - A micro-definition in parentheses
@@ -1061,7 +1061,7 @@ if "tokens" in st.session_state:
                     for i, (token, score) in enumerate(top_poly):
                         # Color formatting based on threshold
                         if score >= poly_threshold:
-                            token_html = f"<span style='color:green; font-weight:bold'>{html.escape(token)} 🔒</span>"
+                            token_html = f"<span style='color:green; font-weight:bold'>{html.escape(token)} :lock:</span>"
                         else:
                             token_html = html.escape(token)
                         
